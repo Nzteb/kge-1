@@ -307,6 +307,11 @@ negative_sampling:
   # batch_size.
   chunk_size: -1                  # default: no chunking
 
+1vsAllProbab:
+  # Number of samples drawn from the noise variable for the reparameterization trick
+  reparameterize_samples: 10
+  # Prior sigma for all entities (inverse of regularization strength)
+  prior_sigma: 1
 
 ## VALIDATION AND EVALUATION ###################################################
 

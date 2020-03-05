@@ -1,0 +1,11 @@
+import: [complex, probabilistic_embedder]
+
+probabilistic_model:
+  class_name: ProbabilisticModel
+  base_model:
+    type: complex
+    entity_embedder:
+      type: probabilistic_embedder
+    relation_embedder:
+      type: probabilistic_embedder
+    +++: +++
