@@ -1,0 +1,25 @@
+job.type: train
+dataset.name: toy
+
+train:
+  loss: kl
+  type: 1vsAllProbab
+  optimizer: Adagrad
+  optimizer_args:
+    lr: 0.2
+  lr_scheduler: ReduceLROnPlateau
+  lr_scheduler_args:
+    mode: max
+    patience: 4
+  max_epochs: 20
+
+1vsAllProbab:
+  reparameterize_samples: 10
+  prior_sigma: 1
+
+
+valid.filter_with_test: True
+valid.every: 5
+model: probabilistic_model
+probabilistic_embedder.dim: 41
+

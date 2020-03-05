@@ -104,6 +104,8 @@ class TrainingJob(Job):
             return TrainingJobNegativeSampling(config, dataset, parent_job)
         elif config.get("train.type") == "1vsAll":
             return TrainingJob1vsAll(config, dataset, parent_job)
+        elif config.get("train.type") == "1vsAllProbab":
+            return TrainingJob1vsAllProbab(config, dataset, parent_job)
         else:
             # perhaps TODO: try class with specified name -> extensibility
             raise ValueError("train.type")
@@ -990,4 +992,166 @@ class TrainingJob1vsAll(TrainingJob):
         # all done
         return TrainingJob._ProcessBatchResult(
             loss_value, batch_size, prepare_time, forward_time, backward_time
+        )
+
+
+class TrainingJob1vsAllProbab(TrainingJob):
+    def __init__(self, config, dataset, parent_job=None):
+        super().__init__(config, dataset, parent_job)
+        self.is_prepared = False
+        config.log("Initializing spo training job...")
+        self.type_str = "1vsAllProbab"
+        self.num_eps_samples = self.config.get("1vsAllProbab.reparameterize_samples")
+        self.prior_sigma = self.config.get("1vsAllProbab.prior_sigma")
+
+        if self.__class__ == TrainingJob1vsAllProbab:
+            for f in Job.job_created_hooks:
+                f(self)
+
+    def _prepare(self):
+        """Construct dataloader"""
+
+        if self.is_prepared:
+            return
+
+        self.num_examples = self.dataset.train().size(0)
+        self.loader = torch.utils.data.DataLoader(
+            range(self.num_examples),
+            collate_fn=self.get_collate_fun(),
+            shuffle=True,
+            batch_size=self.batch_size,
+            num_workers=self.config.get("train.num_workers"),
+            pin_memory=self.config.get("train.pin_memory"),
+        )
+
+        self.is_prepared = True
+
+    def get_collate_fun(self):
+
+        def collate(batch):
+            processed_batch = {"triples": self.dataset.train()[batch, :].long()}
+            eps_so = torch.randn(
+                self.num_eps_samples,
+                self.model.dataset.num_entities(),
+                self.model.get_s_embedder().dim
+            )
+            eps_p = torch.randn(
+                self.num_eps_samples,
+                self.dataset.num_relations()*2,#reciprocal relations
+                self.model.get_p_embedder().dim
+            )
+            processed_batch["eps_so"] = eps_so
+            processed_batch["eps_p"] = eps_p
+            return processed_batch
+        return collate
+
+    def _process_batch(self, batch_index, batch) -> TrainingJob._ProcessBatchResult:
+        # prepare
+        prepare_time = -time.time()
+        triples = batch["triples"].to(self.device)
+        eps_so = batch["eps_so"]
+        eps_p = batch["eps_p"]
+        batch_size = len(triples)
+        prepare_time += time.time()
+
+        s_idx = triples[:, 0]
+        p_idx = triples[:, 1]
+        o_idx = triples[:, 2]
+        
+        if self.model.get_s_embedder() != self.model.get_o_embedder():
+            raise Exception("Training scheme only supports using same embedders")
+        
+        all_ent_emb = self.model.get_s_embedder().embed_all()
+        all_ent_means, all_ent_sigmas = all_ent_emb["means"], all_ent_emb["sigmas"]
+        
+        s_means, s_sigmas = all_ent_means[s_idx], all_ent_sigmas[s_idx]
+
+        p = self.model.get_p_embedder().embed(p_idx)
+        p_means, p_sigmas = p["means"], p["sigmas"]
+        p_inv = self.model.get_p_embedder().embed(p_idx + self.dataset.num_relations())
+        p_means_inv, p_sigmas_inv = p_inv["means"], p_inv["sigmas"]
+
+        all_p_emb = self.model.get_p_embedder().embed_all()
+        all_p_means, all_p_sigmas = all_p_emb["means"], all_p_emb["sigmas"]
+
+        o_means, o_sigmas = all_ent_means[o_idx], all_ent_sigmas[o_idx]
+
+        # forward/backward pass (sp)
+        forward_time = -time.time()
+
+        # each example embeddings are reparameterized and scored x-times
+        # where x=num_eps_samples
+        # (batch_size * num_eps_samples) X num_entities tensor
+        scores_sp = self.model._scorer.score_emb(
+            s_means.repeat(self.num_eps_samples, 1) +
+            s_sigmas.repeat(self.num_eps_samples, 1) *
+            eps_so[:, s_idx, :].view(self.num_eps_samples*batch_size, -1),
+
+            p_means.repeat(self.num_eps_samples, 1) +
+            p_sigmas.repeat(self.num_eps_samples, 1) *
+            eps_p[:, p_idx, :].view(self.num_eps_samples*batch_size, -1),
+
+            all_ent_means.repeat(self.num_eps_samples, 1) +
+            all_ent_sigmas.repeat(self.num_eps_samples, 1) *
+            eps_so.view(self.num_eps_samples*len(all_ent_means), -1),
+
+            combine="sp*"
+        )
+        loss_value_sp = self.loss(scores_sp, o_idx.repeat(self.num_eps_samples))
+        loss_value_sp = loss_value_sp / (self.num_eps_samples * batch_size)
+        loss_value = loss_value_sp.item()
+
+        forward_time += time.time()
+        backward_time = -time.time()
+        loss_value_sp.backward(retain_graph=True)
+        backward_time += time.time()
+
+        # forward/backward pass (po)
+        # this is reciprocal training
+        # each example embeddings are reparameterized and scored x-times
+        # where x=num_eps_samples
+        # (batch_size * num_eps_samples) X num_entities tensor
+        scores_po = self.model._scorer.score_emb(
+            o_means.repeat(self.num_eps_samples, 1) +
+            p_sigmas.repeat(self.num_eps_samples, 1) *
+            eps_so[:, o_idx, :].view(self.num_eps_samples * batch_size, -1),
+
+            p_means_inv.repeat(self.num_eps_samples, 1) +
+            p_sigmas_inv.repeat(self.num_eps_samples, 1) *
+            eps_p[:, p_idx+self.dataset.num_relations(), :].view(self.num_eps_samples * batch_size, -1),
+
+            all_ent_means.repeat(self.num_eps_samples, 1) +
+            all_ent_sigmas.repeat(self.num_eps_samples, 1) *
+            eps_so.view(self.num_eps_samples * len(all_ent_means), -1),
+
+            combine="sp*"
+        )
+        loss_value_po = self.loss(scores_po, s_idx.repeat(self.num_eps_samples))
+        loss_value_po = loss_value_po / (self.num_eps_samples * batch_size)
+        loss_value += loss_value_po.item()
+        forward_time += time.time()
+        backward_time -= time.time()
+        loss_value_po.backward(retain_graph=True)
+        backward_time += time.time()
+
+        # TODO when models are finalized move penalty computation
+        prior_sigma_inv = 1 / self.prior_sigma
+        x = 2 # x-norm
+        penalties_reg = torch.zeros(1).to(self.config.get("job.device"))
+        penalties_entropy = torch.zeros(1).to(self.config.get("job.device"))
+
+        for i in range(self.num_eps_samples):
+            penalties_reg += prior_sigma_inv / x * (torch.abs((all_ent_means + eps_so[i]* all_ent_sigmas)) ** x).sum()
+            penalties_reg += prior_sigma_inv / x * (torch.abs((all_p_means + eps_p[i] * all_p_sigmas)) ** x).sum()
+        penalties_reg = penalties_reg / self.num_eps_samples
+
+        penalties_entropy -= torch.log(all_ent_sigmas).sum()
+        penalties_entropy -= torch.log(all_p_sigmas).sum()
+
+        penalties = (penalties_entropy + penalties_reg) / len(self.dataset.train())
+        penalties.backward()
+
+        # all done
+        return TrainingJob._ProcessBatchResult(
+            loss_value+penalties.item(), batch_size, prepare_time, forward_time, backward_time
         )
