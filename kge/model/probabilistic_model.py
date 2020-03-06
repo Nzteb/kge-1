@@ -9,8 +9,6 @@ class ProbabilisticModel(KgeModel):
         self._init_configuration(config, configuration_key)
 
         # Initialize base model
-        # TODO could this generalized e.g, train reciprocal yes;no
-        #  Train per default reciprocal
         # Using a dataset with twice the number of relations to initialize base model
         alt_dataset = dataset.shallow_copy()
         alt_dataset._num_relations = dataset.num_relations() * 2
@@ -31,6 +29,8 @@ class ProbabilisticModel(KgeModel):
         self._base_model.prepare_job(job, **kwargs)
 
     def penalty(self, **kwargs):
+        # TODO penalty computation is moved into probabilistic training
+        #  as different training schemes require different penalties aka non-data terms
        return []
 
     def score_spo(self, s: Tensor, p: Tensor, o: Tensor, direction=None) -> Tensor:

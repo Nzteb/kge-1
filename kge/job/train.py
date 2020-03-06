@@ -1002,7 +1002,10 @@ class TrainingJob1vsAllProbab(TrainingJob):
         config.log("Initializing spo training job...")
         self.type_str = "1vsAllProbab"
         self.num_eps_samples = self.config.get("1vsAllProbab.reparameterize_samples")
-        self.prior_sigma = self.config.get("1vsAllProbab.prior_sigma")
+        self.prior_sigma_sq = self.config.get("1vsAllProbab.prior_sigma_sq")
+
+        if self.model.get_s_embedder() != self.model.get_o_embedder():
+            raise Exception("Training scheme only supports using same embedders")
 
         if self.__class__ == TrainingJob1vsAllProbab:
             for f in Job.job_created_hooks:
@@ -1029,7 +1032,8 @@ class TrainingJob1vsAllProbab(TrainingJob):
     def get_collate_fun(self):
 
         def collate(batch):
-            processed_batch = {"triples": self.dataset.train()[batch, :].long()}
+            triples = self.dataset.train()[batch, :].long().to(self.device)
+
             eps_so = torch.randn(
                 self.num_eps_samples,
                 self.model.dataset.num_entities(),
@@ -1040,41 +1044,64 @@ class TrainingJob1vsAllProbab(TrainingJob):
                 self.dataset.num_relations()*2,#reciprocal relations
                 self.model.get_p_embedder().dim
             )
-            processed_batch["eps_so"] = eps_so
-            processed_batch["eps_p"] = eps_p
-            return processed_batch
+
+            s_idx = triples[:, 0]
+            p_idx = triples[:, 1]
+            o_idx = triples[:, 2]
+
+            all_ent_emb = self.model.get_s_embedder().embed_all()
+            all_ent_means, all_ent_sigmas = all_ent_emb["means"], all_ent_emb["sigmas"]
+
+            s_means, s_sigmas = all_ent_means[s_idx], all_ent_sigmas[s_idx]
+
+            p = self.model.get_p_embedder().embed(p_idx)
+            p_means, p_sigmas = p["means"], p["sigmas"]
+
+            p_inv = self.model.get_p_embedder().embed(
+                p_idx + self.dataset.num_relations())
+            p_means_inv, p_sigmas_inv = p_inv["means"], p_inv["sigmas"]
+
+            all_p_emb = self.model.get_p_embedder().embed_all()
+            all_p_means, all_p_sigmas = all_p_emb["means"], all_p_emb["sigmas"]
+
+            o_means, o_sigmas = all_ent_means[o_idx], all_ent_sigmas[o_idx]
+
+            return {
+                "triples": triples,
+                "eps_so": eps_so,
+                "eps_p": eps_p,
+                "all_ent_means": all_ent_means,
+                "all_ent_sigmas": all_ent_sigmas,
+                "s_means": s_means,
+                "s_sigmas": s_sigmas,
+                "o_means": o_means,
+                "o_sigmas": o_sigmas,
+                "p_means": p_means,
+                "p_sigmas": p_sigmas,
+                "p_means_inv": p_means_inv,
+                "p_sigmas_inv": p_sigmas_inv,
+                "all_p_means": all_p_means,
+                "all_p_sigmas": all_p_sigmas
+            }
         return collate
 
     def _process_batch(self, batch_index, batch) -> TrainingJob._ProcessBatchResult:
         # prepare
         prepare_time = -time.time()
-        triples = batch["triples"].to(self.device)
+        triples = batch["triples"]
         eps_so = batch["eps_so"]
         eps_p = batch["eps_p"]
         batch_size = len(triples)
-        prepare_time += time.time()
-
         s_idx = triples[:, 0]
         p_idx = triples[:, 1]
         o_idx = triples[:, 2]
-        
-        if self.model.get_s_embedder() != self.model.get_o_embedder():
-            raise Exception("Training scheme only supports using same embedders")
-        
-        all_ent_emb = self.model.get_s_embedder().embed_all()
-        all_ent_means, all_ent_sigmas = all_ent_emb["means"], all_ent_emb["sigmas"]
-        
-        s_means, s_sigmas = all_ent_means[s_idx], all_ent_sigmas[s_idx]
+        all_ent_means, all_ent_sigmas = batch["all_ent_means"], batch["all_ent_sigmas"]
+        s_means, s_sigmas = batch["s_means"], batch["s_sigmas"]
+        o_means, o_sigmas = batch["o_means"], batch["o_sigmas"]
+        p_means, p_sigmas = batch["p_means"], batch["p_sigmas"]
+        p_means_inv, p_sigmas_inv = batch["p_means_inv"], batch["p_sigmas_inv"]
 
-        p = self.model.get_p_embedder().embed(p_idx)
-        p_means, p_sigmas = p["means"], p["sigmas"]
-        p_inv = self.model.get_p_embedder().embed(p_idx + self.dataset.num_relations())
-        p_means_inv, p_sigmas_inv = p_inv["means"], p_inv["sigmas"]
-
-        all_p_emb = self.model.get_p_embedder().embed_all()
-        all_p_means, all_p_sigmas = all_p_emb["means"], all_p_emb["sigmas"]
-
-        o_means, o_sigmas = all_ent_means[o_idx], all_ent_sigmas[o_idx]
+        prepare_time += time.time()
 
         # forward/backward pass (sp)
         forward_time = -time.time()
@@ -1083,6 +1110,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
         # where x=num_eps_samples
         # (batch_size * num_eps_samples) X num_entities tensor
         scores_sp = self.model._scorer.score_emb(
+
             s_means.repeat(self.num_eps_samples, 1) +
             s_sigmas.repeat(self.num_eps_samples, 1) *
             eps_so[:, s_idx, :].view(self.num_eps_samples*batch_size, -1),
@@ -1112,8 +1140,9 @@ class TrainingJob1vsAllProbab(TrainingJob):
         # where x=num_eps_samples
         # (batch_size * num_eps_samples) X num_entities tensor
         scores_po = self.model._scorer.score_emb(
+
             o_means.repeat(self.num_eps_samples, 1) +
-            p_sigmas.repeat(self.num_eps_samples, 1) *
+            o_sigmas.repeat(self.num_eps_samples, 1) *
             eps_so[:, o_idx, :].view(self.num_eps_samples * batch_size, -1),
 
             p_means_inv.repeat(self.num_eps_samples, 1) +
@@ -1134,24 +1163,58 @@ class TrainingJob1vsAllProbab(TrainingJob):
         loss_value_po.backward(retain_graph=True)
         backward_time += time.time()
 
-        # TODO when models are finalized move penalty computation
-        prior_sigma_inv = 1 / self.prior_sigma
-        x = 2 # x-norm
+        # TODO when models are finalized you might want to move penalty computation
+        #  also: penalty and loss are accumulated into loss like this in the trace
+        #  as penalty computation happens downstream in train but we need it here
+        #  because it depends on the training and batch end e.g. epsilons
+        loss_value += self._process_penalty(batch)
+
+
+        # all done
+        return TrainingJob._ProcessBatchResult(
+            loss_value, batch_size, prepare_time, forward_time, backward_time
+        )
+
+    def _process_penalty(self, batch):
+        eps_so = batch["eps_so"]
+        eps_p = batch["eps_p"]
+        all_ent_means, all_ent_sigmas = batch["all_ent_means"], batch["all_ent_sigmas"]
+        all_p_means, all_p_sigmas = batch["all_p_means"], batch["all_p_sigmas"]
+
+        prior_sigma_inv = 1 / self.prior_sigma_sq
+        lp = 2  # lp-norm
         penalties_reg = torch.zeros(1).to(self.config.get("job.device"))
         penalties_entropy = torch.zeros(1).to(self.config.get("job.device"))
 
         for i in range(self.num_eps_samples):
-            penalties_reg += prior_sigma_inv / x * (torch.abs((all_ent_means + eps_so[i]* all_ent_sigmas)) ** x).sum()
-            penalties_reg += prior_sigma_inv / x * (torch.abs((all_p_means + eps_p[i] * all_p_sigmas)) ** x).sum()
+            penalties_reg += prior_sigma_inv / lp * (torch.abs(
+                (all_ent_means + eps_so[i] * all_ent_sigmas)) ** lp).sum()
+            penalties_reg += prior_sigma_inv / lp * (
+                        torch.abs((all_p_means + eps_p[i] * all_p_sigmas)) ** lp).sum()
         penalties_reg = penalties_reg / self.num_eps_samples
 
         penalties_entropy -= torch.log(all_ent_sigmas).sum()
         penalties_entropy -= torch.log(all_p_sigmas).sum()
-
-        penalties = (penalties_entropy + penalties_reg) / len(self.dataset.train())
+        # scale penalty with size of dataset to match expectations
+        penalties = (penalties_entropy + penalties_reg) / (len(self.dataset.train()))
         penalties.backward()
 
-        # all done
-        return TrainingJob._ProcessBatchResult(
-            loss_value+penalties.item(), batch_size, prepare_time, forward_time, backward_time
-        )
+        return penalties.item()
+
+
+    def _process_penalty_kl(self, batch):
+
+        prior_sigma_sq = self.prior_sigma_sq
+        prior_sigma = torch.sqrt(torch.tensor(prior_sigma_sq).float().to(self.device))
+        all_ent_means, all_ent_sigmas = batch["all_ent_means"], batch["all_ent_sigmas"]
+        all_p_means, all_p_sigmas = batch["all_p_means"], batch["all_p_sigmas"]
+        penalties = (torch.log(prior_sigma / all_ent_sigmas) \
+                    + (all_ent_sigmas**2 + all_ent_means**2) / (2*prior_sigma_sq)).sum()
+
+        penalties += (torch.log(prior_sigma / all_p_sigmas)
+                      + (all_p_sigmas**2 + all_p_means**2) / (2*prior_sigma_sq)).sum()
+        penalties = penalties / (len(self.dataset.train()))
+        penalties.backward()
+
+        return penalties.item()
+
