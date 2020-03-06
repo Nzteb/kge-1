@@ -311,7 +311,7 @@ negative_sampling:
   # Number of samples drawn from the noise variable for the reparameterization trick
   reparameterize_samples: 10
   # Prior sigma for all entities (inverse of regularization strength)
-  prior_sigma: 1
+  prior_sigma_sq: 1
 
 ## VALIDATION AND EVALUATION ###################################################
 
