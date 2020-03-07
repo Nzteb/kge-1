@@ -6,7 +6,7 @@ train:
   type: 1vsAllProbab
   optimizer: Adagrad
   optimizer_args:
-    lr: 0.6
+    lr: 1
   lr_scheduler: ReduceLROnPlateau
   lr_scheduler_args:
     mode: max
