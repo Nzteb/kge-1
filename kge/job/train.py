@@ -1042,12 +1042,12 @@ class TrainingJob1vsAllProbab(TrainingJob):
                 self.num_eps_samples,
                 self.model.dataset.num_entities(),
                 self.model.get_s_embedder().dim
-            )
+            ).to(self.config.get("job.device"))
             eps_p = torch.randn(
                 self.num_eps_samples,
                 self.dataset.num_relations()*2,#reciprocal relations
                 self.model.get_p_embedder().dim
-            )
+            ).to(self.config.get("job.device"))
 
             s_idx = triples[:, 0]
             p_idx = triples[:, 1]
