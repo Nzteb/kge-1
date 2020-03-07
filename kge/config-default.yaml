@@ -312,6 +312,11 @@ negative_sampling:
   reparameterize_samples: 10
   # Prior sigma for all entities (inverse of regularization strength)
   prior_sigma_sq: 1
+  # "kl" (KL-form) or "ent" (entropy form)
+  elbo_form: kl
+  # norm; should be 2 to compare probabilistic models; e.g. not applicable in the kl
+  # form of the elbo as this comes from a gaussian
+  lp: 2
 
 ## VALIDATION AND EVALUATION ###################################################
 

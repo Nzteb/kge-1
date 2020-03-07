@@ -31,10 +31,9 @@ ax_search:
     - name: 1vsAllProbab.reparameterize_samples
       type: choice
       values: [1, 2, 5, 10,20]
-    - name: 1vsAllProbab.prior_sigma
+    - name: 1vsAllProbab.kl
       type: choice
-      values: [1.0, 0.0]
-      log_scale: True
+      values: [1, 0]
     - name: lookup_embedder.dim
       type: range
       bounds: [10, 50]
