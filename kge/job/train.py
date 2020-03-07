@@ -1003,6 +1003,10 @@ class TrainingJob1vsAllProbab(TrainingJob):
         self.type_str = "1vsAllProbab"
         self.num_eps_samples = self.config.get("1vsAllProbab.reparameterize_samples")
         self.prior_sigma_sq = self.config.get("1vsAllProbab.prior_sigma_sq")
+        self.elbo_form = self.config.get("1vsAllProbab.elbo_form")
+        self.config.check("1vsAllProbab.elbo_form", ["kl", "ent"])
+        self.lp = self.config.get("1vsAllProbab.lp")
+
 
         if self.model.get_s_embedder() != self.model.get_o_embedder():
             raise Exception("Training scheme only supports using same embedders")
@@ -1165,24 +1169,26 @@ class TrainingJob1vsAllProbab(TrainingJob):
 
         # TODO when models are finalized you might want to move penalty computation
         #  also: penalty and loss are accumulated into loss like this in the trace
-        #  as penalty computation happens downstream in train but we need it here
+        #  as the frameworks penalty computation happens downstream in train but we need it here
         #  because it depends on the training and batch end e.g. epsilons
-        loss_value += self._process_penalty(batch)
-
+        if self.elbo_form == "kl":
+            loss_value += self._process_penalty_kl(batch)
+        elif self.elbo_form =="ent":
+            loss_value += self._process_penalty_ent(batch)
 
         # all done
         return TrainingJob._ProcessBatchResult(
             loss_value, batch_size, prepare_time, forward_time, backward_time
         )
 
-    def _process_penalty(self, batch):
+    def _process_penalty_ent(self, batch):
         eps_so = batch["eps_so"]
         eps_p = batch["eps_p"]
         all_ent_means, all_ent_sigmas = batch["all_ent_means"], batch["all_ent_sigmas"]
         all_p_means, all_p_sigmas = batch["all_p_means"], batch["all_p_sigmas"]
 
         prior_sigma_inv = 1 / self.prior_sigma_sq
-        lp = 2  # lp-norm
+        lp = self.lp  # lp-norm
         penalties_reg = torch.zeros(1).to(self.config.get("job.device"))
         penalties_entropy = torch.zeros(1).to(self.config.get("job.device"))
 
