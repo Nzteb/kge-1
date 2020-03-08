@@ -132,6 +132,30 @@ def index_relation_types(dataset):
         dataset.config.log("{} relations of type {}".format(len(v), k), prefix="  ")
 
 
+#TODO you could combine this with the beginning of index_frequency_percentiles
+# also augment by predicates
+def index_entity_frequencies(dataset: "Dataset", split: str):
+    """Calculate the relative frequencies for all entities appearing in triple slots"""
+    if split == "train":
+        triples = dataset.test()
+    elif split == "valid":
+        triples = dataset.valid()
+    elif split == "test":
+        triples = dataset.test()
+    else:
+        raise Exception("Invalid split choice for entity frequency index.")
+
+    key = split + "_entity_frequencies"
+    if key in dataset._indexes:
+        return
+    freq = defaultdict(int)
+    for (s, p, o) in triples:
+        # two possible slots for every triple
+        freq[s.item()] += 1 / (2*len(triples))
+        freq[o.item()] += 1 / (2*len(triples))
+    dataset._indexes[key] = freq
+
+
 def index_frequency_percentiles(dataset, recompute=False):
     """
     :return: dictionary mapping from
@@ -221,6 +245,10 @@ def _invert_ids(dataset, obj: str):
 
 def create_default_index_functions(dataset: "Dataset"):
     for split in ["train", "valid", "test"]:
+        ent_freq_key = split + "_entity_frequencies"
+        dataset.index_functions[ent_freq_key] = IndexWrapper(
+            index_entity_frequencies, split=split
+        )
         for key, value in [("sp", "o"), ("po", "s"), ("so", "p")]:
             # self assignment needed to capture the loop var
             dataset.index_functions[f"{split}_{key}_to_{value}"] = IndexWrapper(
