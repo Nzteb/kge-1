@@ -1074,7 +1074,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
         self.prior_sigma_sq = self.config.get("1vsAllProbab.prior_sigma_sq")
         self.elbo_form = self.config.get("1vsAllProbab.elbo_form")
         self.config.check("1vsAllProbab.elbo_form", ["kl", "ent"])
-        self.lp = self.config.get("1vsAllProbab.lp")
+        self.norm_p = self.config.get("1vsAllProbab.norm_p")
 
 
         if self.model.get_s_embedder() != self.model.get_o_embedder():
@@ -1242,7 +1242,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
         #  because it depends on the training and batch end e.g. epsilons
         if self.elbo_form == "kl":
             loss_value += self._process_penalty_kl(batch)
-        elif self.elbo_form =="ent":
+        elif self.elbo_form == "ent":
             loss_value += self._process_penalty_ent(batch)
 
         # all done
@@ -1257,15 +1257,15 @@ class TrainingJob1vsAllProbab(TrainingJob):
         all_p_means, all_p_sigmas = batch["all_p_means"], batch["all_p_sigmas"]
 
         prior_sigma_inv = 1 / self.prior_sigma_sq
-        lp = self.lp  # lp-norm
+        norm_p = self.norm_p  # p-norm
         penalties_reg = torch.zeros(1).to(self.config.get("job.device"))
         penalties_entropy = torch.zeros(1).to(self.config.get("job.device"))
 
         for i in range(self.num_eps_samples):
-            penalties_reg += prior_sigma_inv / lp * (torch.abs(
-                (all_ent_means + eps_so[i] * all_ent_sigmas)) ** lp).sum()
-            penalties_reg += prior_sigma_inv / lp * (
-                        torch.abs((all_p_means + eps_p[i] * all_p_sigmas)) ** lp).sum()
+            penalties_reg += prior_sigma_inv / norm_p * (torch.abs(
+                (all_ent_means + eps_so[i] * all_ent_sigmas)) ** norm_p).sum()
+            penalties_reg += prior_sigma_inv / norm_p * (
+                        torch.abs((all_p_means + eps_p[i] * all_p_sigmas)) ** norm_p).sum()
         penalties_reg = penalties_reg / self.num_eps_samples
 
         penalties_entropy -= torch.log(all_ent_sigmas).sum()
@@ -1276,9 +1276,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
 
         return penalties.item()
 
-
     def _process_penalty_kl(self, batch):
-
         prior_sigma_sq = self.prior_sigma_sq
         prior_sigma = torch.sqrt(torch.tensor(prior_sigma_sq).float().to(self.device))
         all_ent_means, all_ent_sigmas = batch["all_ent_means"], batch["all_ent_sigmas"]

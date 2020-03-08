@@ -316,7 +316,7 @@ negative_sampling:
   elbo_form: kl
   # norm; should be 2 to compare probabilistic models; e.g. not applicable in the kl
   # form of the elbo as this comes from a gaussian
-  lp: 2
+  norm_p: 2
 
 ## VALIDATION AND EVALUATION ###################################################
 
