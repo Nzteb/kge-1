@@ -1239,7 +1239,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
         # TODO when models are finalized you might want to move penalty computation
         #  also: penalty and loss are accumulated into loss like this in the trace
         #  as the frameworks penalty computation happens downstream in train but we need it here
-        #  because it depends on the training and batch end e.g. epsilons
+        #  because it depends on the training and batch and e.g. epsilons
         if self.elbo_form == "kl":
             loss_value += self._process_penalty_kl(batch)
         elif self.elbo_form == "ent":
