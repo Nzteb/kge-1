@@ -137,14 +137,13 @@ def index_relation_types(dataset):
 def index_entity_frequencies(dataset: "Dataset", split: str):
     """Calculate the relative frequencies for all entities appearing in triple slots"""
     if split == "train":
-        triples = dataset.test()
+        triples = dataset.train()
     elif split == "valid":
         triples = dataset.valid()
     elif split == "test":
         triples = dataset.test()
     else:
         raise Exception("Invalid split choice for entity frequency index.")
-
     key = split + "_entity_frequencies"
     if key in dataset._indexes:
         return
