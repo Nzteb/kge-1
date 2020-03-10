@@ -6,7 +6,7 @@ train:
   type: 1vsAllProbab
   optimizer: Adagrad
   optimizer_args:
-    lr: 1
+    lr: 0.4
   lr_scheduler: ReduceLROnPlateau
   lr_scheduler_args:
     mode: max
@@ -15,8 +15,10 @@ train:
 
 1vsAllProbab:
   reparameterize_samples: 2
+  # set to -1 to learn prior variances for every entity/relations
   prior_variance: -1
-  elbo_form: kl
+  elbo_form: ent
+  norm_p: 3
 
 
 valid.filter_with_test: True
