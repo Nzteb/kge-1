@@ -29,6 +29,12 @@ class ProbabilisticEmbedder(KgeEmbedder):
         if len(round_embedder_dim_to) > 0:
             self.dim = round_to_points(round_embedder_dim_to, self.dim)
 
+        ### Probabilistic Extensions ###
+
+        # TODO you only need this when there is no global prior variance
+        # does not need to be initialized as it is closed-form updated
+        self.prior_variance = torch.zeros(self.vocab_size)
+
         # setup means
         self.means = torch.nn.Parameter(torch.empty(self.vocab_size, self.dim))
         # phi*phi = sigma^2

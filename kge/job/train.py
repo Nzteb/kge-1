@@ -1002,11 +1002,22 @@ class TrainingJob1vsAllProbab(TrainingJob):
         config.log("Initializing spo training job...")
         self.type_str = "1vsAllProbab"
         self.num_eps_samples = self.config.get("1vsAllProbab.reparameterize_samples")
-        self.prior_sigma_sq = self.config.get("1vsAllProbab.prior_sigma_sq")
         self.elbo_form = self.config.get("1vsAllProbab.elbo_form")
         self.config.check("1vsAllProbab.elbo_form", ["kl", "ent"])
         self.norm_p = self.config.get("1vsAllProbab.norm_p")
 
+        var = self.config.get("1vsAllProbab.prior_variance")
+        if var > 0:
+            # one global variance for all entities and relations (and coordinates)
+            self.learn_reg = False
+            self.prior_variance_ent = var
+            self.prior_variance_pred = var
+        elif var == -1:
+            self.learn_reg = True
+            self.prior_variance_ent = None
+            self.prior_variance_pred = None
+        else:
+            raise Exception("Wrong parameter for prior_sigma_sq")
 
         if self.model.get_s_embedder() != self.model.get_o_embedder():
             raise Exception("Training scheme only supports using same embedders")
@@ -1107,6 +1118,10 @@ class TrainingJob1vsAllProbab(TrainingJob):
 
         prepare_time += time.time()
 
+        #EM M-step
+        if self.learn_reg:
+            self.update_prior_variances(batch)
+
         # forward/backward pass (sp)
         forward_time = -time.time()
 
@@ -1174,51 +1189,95 @@ class TrainingJob1vsAllProbab(TrainingJob):
         if self.elbo_form == "kl":
             loss_value += self._process_penalty_kl(batch)
         elif self.elbo_form == "ent":
-            loss_value += self._process_penalty_ent(batch)
+            loss_value += self._process_penalty_entropy(batch)
 
         # all done
         return TrainingJob._ProcessBatchResult(
             loss_value, batch_size, prepare_time, forward_time, backward_time
         )
 
-    def _process_penalty_ent(self, batch):
+    def _process_penalty_entropy(self, batch):
         eps_so = batch["eps_so"]
         eps_p = batch["eps_p"]
         all_ent_means, all_ent_sigmas = batch["all_ent_means"], batch["all_ent_sigmas"]
         all_p_means, all_p_sigmas = batch["all_p_means"], batch["all_p_sigmas"]
 
-        prior_sigma_inv = 1 / self.prior_sigma_sq
+        if not self.learn_reg:
+            prior_variance_ent = self.prior_variance_ent
+            prior_variance_pred = self.prior_variance_pred
+        else:
+            embedder_ent = self.model.get_o_embedder()
+            embedder_pred = self.model.get_p_embedder()
+            prior_variance_ent = embedder_ent.prior_variance
+            prior_variance_pred = embedder_pred.prior_variance
+
         norm_p = self.norm_p  # p-norm
         penalties_reg = torch.zeros(1).to(self.config.get("job.device"))
         penalties_entropy = torch.zeros(1).to(self.config.get("job.device"))
 
+        # TODO vectorize as above
         for i in range(self.num_eps_samples):
-            penalties_reg += prior_sigma_inv / norm_p * (torch.abs(
-                (all_ent_means + eps_so[i] * all_ent_sigmas)) ** norm_p).sum()
-            penalties_reg += prior_sigma_inv / norm_p * (
-                        torch.abs((all_p_means + eps_p[i] * all_p_sigmas)) ** norm_p).sum()
-        penalties_reg = penalties_reg / self.num_eps_samples
+            if norm_p % 2 == 1:
+                params_ent = torch.abs(all_ent_means + eps_so[i] * all_ent_sigmas).transpose(0,1)
+                params_pred = torch.abs(all_p_means + eps_p[i] * all_p_sigmas).transpose(0,1)
+            else:
+                params_ent = (all_ent_means + eps_so[i] * all_ent_sigmas).transpose(0,1)
+                params_pred = (all_p_means + eps_p[i] * all_p_sigmas).transpose(0,1)
+            # regularization term of prior distribution (e.g. gaussian for norm_p=2)
+            # prior variance is either a scalar or a vector to scale every entity/pred
+            # with their particular variance
+            penalties_reg += (1 / norm_p) * \
+                             ((params_ent ** norm_p) / prior_variance_ent).sum()
 
+            penalties_reg += (1 / norm_p) * \
+                             ((params_pred ** norm_p) / prior_variance_pred).sum()
+        penalties_reg = penalties_reg / self.num_eps_samples
+        # entropy term of variational gaussian and prior gaussian
         penalties_entropy -= torch.log(all_ent_sigmas).sum()
         penalties_entropy -= torch.log(all_p_sigmas).sum()
-        # scale penalty with size of dataset to match expectations
-        penalties = (penalties_entropy + penalties_reg) / (len(self.dataset.train()))
+        # scale penalty with size of dataset (2*num triples) to match expectations
+        penalties = (penalties_entropy + penalties_reg) / (len(2*self.dataset.train()))
         penalties.backward()
 
         return penalties.item()
 
     def _process_penalty_kl(self, batch):
-        prior_sigma_sq = self.prior_sigma_sq
-        prior_sigma = torch.sqrt(torch.tensor(prior_sigma_sq).float().to(self.device))
+        """Closed form KL of variational and prior gaussian distributions"""
+        if not self.learn_reg:
+            prior_variance_ent = torch.as_tensor(self.prior_variance_ent).float()
+            prior_variance_pred = torch.as_tensor(self.prior_variance_pred).float()
+        else:
+            embedder_ent = self.model.get_o_embedder()
+            embedder_pred = self.model.get_p_embedder()
+            prior_variance_ent = embedder_ent.prior_variance
+            prior_variance_pred = embedder_pred.prior_variance
+
+        prior_sigma_ent = torch.sqrt(prior_variance_ent)
+        prior_sigma_pred = torch.sqrt(prior_variance_pred)
         all_ent_means, all_ent_sigmas = batch["all_ent_means"], batch["all_ent_sigmas"]
         all_p_means, all_p_sigmas = batch["all_p_means"], batch["all_p_sigmas"]
-        penalties = (torch.log(prior_sigma / all_ent_sigmas) \
-                    + (all_ent_sigmas**2 + all_ent_means**2) / (2*prior_sigma_sq)).sum()
+        penalties = (torch.log(prior_sigma_ent / all_ent_sigmas.transpose(0,1))
+                    + (all_ent_sigmas**2 + all_ent_means**2).transpose(0,1) / (2*prior_variance_ent)).sum()
 
-        penalties += (torch.log(prior_sigma / all_p_sigmas)
-                      + (all_p_sigmas**2 + all_p_means**2) / (2*prior_sigma_sq)).sum()
-        penalties = penalties / (len(self.dataset.train()))
+        penalties += (torch.log(prior_sigma_pred / all_p_sigmas.transpose(0,1))
+                      + (all_p_sigmas**2 + all_p_means**2).transpose(0,1) / (2*prior_variance_pred)).sum()
+        penalties = penalties / (len(2*self.dataset.train()))
         penalties.backward()
 
         return penalties.item()
+
+    def update_prior_variances(self, batch):
+        """Calculate closed form updates for entity/relation specific regularization"""
+        all_ent_means, all_ent_sigmas = batch["all_ent_means"], batch["all_ent_sigmas"]
+        all_p_means, all_p_sigmas = batch["all_p_means"], batch["all_p_sigmas"]
+        embedder_ent = self.model.get_o_embedder()
+        embedder_pred = self.model.get_p_embedder()
+
+        if self.norm_p == 2:
+            # for each entity and relation, update their regularization term (M-step)
+            embedder_ent.prior_variance = ((all_ent_means**2).sum(axis=1) + (all_ent_sigmas**2).sum(axis=1)
+                                     )/all_ent_means.size(1)
+
+            embedder_pred.prior_variance = ((all_p_means**2).sum(axis=1) + (all_p_sigmas**2).sum(axis=1)
+                                      )/all_p_means.size(1)
 
