@@ -1067,19 +1067,14 @@ class TrainingJob1vsAllProbab(TrainingJob):
             all_ent_means, all_ent_sigmas = all_ent_emb["means"], all_ent_emb["sigmas"]
 
             s_means, s_sigmas = all_ent_means[s_idx], all_ent_sigmas[s_idx]
-
-            p = self.model.get_p_embedder().embed(p_idx)
-            p_means, p_sigmas = p["means"], p["sigmas"]
-
-            p_inv = self.model.get_p_embedder().embed(
-                p_idx + self.dataset.num_relations()
-            )
-            p_means_inv, p_sigmas_inv = p_inv["means"], p_inv["sigmas"]
+            o_means, o_sigmas = all_ent_means[o_idx], all_ent_sigmas[o_idx]
 
             all_p_emb = self.model.get_p_embedder().embed_all()
             all_p_means, all_p_sigmas = all_p_emb["means"], all_p_emb["sigmas"]
 
-            o_means, o_sigmas = all_ent_means[o_idx], all_ent_sigmas[o_idx]
+            p_means, p_sigmas = all_p_means[p_idx], all_p_sigmas[p_idx]
+            p_means_inv = all_p_means[p_idx + self.dataset.num_relations()]
+            p_sigmas_inv = all_p_sigmas[p_idx + self.dataset.num_relations()]
 
             return {
                 "triples": triples,
@@ -1203,8 +1198,8 @@ class TrainingJob1vsAllProbab(TrainingJob):
         else:
             embedder_ent = self.model.get_o_embedder()
             embedder_pred = self.model.get_p_embedder()
-            prior_variance_ent = embedder_ent.prior_variance
-            prior_variance_pred = embedder_pred.prior_variance
+            prior_variance_ent = embedder_ent.prior_variance.to(self.device)
+            prior_variance_pred = embedder_pred.prior_variance.to(self.device)
 
         norm_p = self.norm_p  # p-norm
         penalties_reg = torch.zeros(1).to(self.config.get("job.device"))
@@ -1212,18 +1207,13 @@ class TrainingJob1vsAllProbab(TrainingJob):
 
         # TODO vectorize as above
         for i in range(self.num_eps_samples):
+
+            params_ent = (all_ent_means + eps_so[i] * all_ent_sigmas).transpose(0, 1)
+            params_pred = (all_p_means + eps_p[i] * all_p_sigmas).transpose(0, 1)
             if norm_p % 2 == 1:
-                params_ent = torch.abs(
-                    all_ent_means + eps_so[i] * all_ent_sigmas
-                ).transpose(0, 1)
-                params_pred = torch.abs(
-                    all_p_means + eps_p[i] * all_p_sigmas
-                ).transpose(0, 1)
-            else:
-                params_ent = (all_ent_means + eps_so[i] * all_ent_sigmas).transpose(
-                    0, 1
-                )
-                params_pred = (all_p_means + eps_p[i] * all_p_sigmas).transpose(0, 1)
+                params_ent = torch.abs(params_ent)
+                params_pred = torch.abs(params_pred)
+
             # regularization term of prior distribution (e.g. gaussian for norm_p=2)
             # prior variance is either a scalar or a vector to scale every entity/pred
             # with their particular variance
@@ -1234,13 +1224,14 @@ class TrainingJob1vsAllProbab(TrainingJob):
             penalties_reg += (1 / norm_p) * (
                 (params_pred ** norm_p) / prior_variance_pred
             ).sum()
+
         penalties_reg = penalties_reg / self.num_eps_samples
         # entropy term of variational gaussian and prior gaussian
         penalties_entropy -= torch.log(all_ent_sigmas).sum()
         penalties_entropy -= torch.log(all_p_sigmas).sum()
         # scale penalty with size of dataset (2*num triples) to match expectations
-        penalties = (penalties_entropy + penalties_reg) / (
-            len(2 * self.dataset.train())
+        penalties = (penalties_entropy + penalties_reg) / 1 (
+            2 * len(self.dataset.train())
         )
         penalties.backward()
 
@@ -1261,11 +1252,11 @@ class TrainingJob1vsAllProbab(TrainingJob):
         else:
             embedder_ent = self.model.get_o_embedder()
             embedder_pred = self.model.get_p_embedder()
-            prior_variance_ent = embedder_ent.prior_variance
-            prior_variance_pred = embedder_pred.prior_variance
+            prior_variance_ent = embedder_ent.prior_variance.to(self.device)
+            prior_variance_pred = embedder_pred.prior_variance.to(self.device)
 
-        prior_sigma_ent = torch.sqrt(prior_variance_ent)
-        prior_sigma_pred = torch.sqrt(prior_variance_pred)
+        prior_sigma_ent = torch.sqrt(prior_variance_ent).to(self.device)
+        prior_sigma_pred = torch.sqrt(prior_variance_pred).to(self.device)
         all_ent_means, all_ent_sigmas = batch["all_ent_means"], batch["all_ent_sigmas"]
         all_p_means, all_p_sigmas = batch["all_p_means"], batch["all_p_sigmas"]
         penalties = (
@@ -1279,7 +1270,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
             + (all_p_sigmas ** 2 + all_p_means ** 2).transpose(0, 1)
             / (2 * prior_variance_pred)
         ).sum()
-        penalties = penalties / (len(2 * self.dataset.train()))
+        penalties = penalties / (2 * len(self.dataset.train()))
         penalties.backward()
 
         return penalties.item()
@@ -1295,57 +1286,50 @@ class TrainingJob1vsAllProbab(TrainingJob):
         # for each entity and relation, update their regularization term (M-step)
         if self.norm_p == 2:
             embedder_ent.prior_variance = (
-                ((all_ent_means ** 2).sum(axis=1) + (all_ent_sigmas ** 2).sum(axis=1))
-                / all_ent_means.size(1)
-            )
+                (all_ent_means ** 2).sum(axis=1) + (all_ent_sigmas ** 2).sum(axis=1)
+            ) / all_ent_means.size(1)
 
             embedder_pred.prior_variance = (
-                ((all_p_means ** 2).sum(axis=1) + (all_p_sigmas ** 2).sum(axis=1))
-                / all_p_means.size(1)
-            )
+                (all_p_means ** 2).sum(axis=1) + (all_p_sigmas ** 2).sum(axis=1)
+            ) / all_p_means.size(1)
         elif self.norm_p == 3:
-            twopi = torch.as_tensor(2 / math.pi)
-            # TODO check for torch error function
-            from scipy import special
-
-            err = (
-                (
-                    torch.abs(all_ent_means)
-                    / (torch.sqrt(torch.tensor(2.0)) * all_ent_sigmas)
-                )
-                .numpy()
+            twopi = torch.as_tensor(2 / math.pi).to(self.device)
+            err = torch.abs(all_ent_means) / (
+                torch.sqrt(torch.tensor(2.0)) * all_ent_sigmas
             )
-            err = torch.as_tensor(special.erf(err))
-
+            err = torch.erf(err).to(self.device)
             embedder_ent.prior_variance = (
-                torch.sqrt(twopi)
-                * (
-                    all_ent_means ** 2 * all_ent_sigmas
-                    + 2
-                    * all_ent_sigmas ** 3
-                    * torch.exp(-1 / 2 * (all_ent_means / all_ent_sigmas) ** 2)
+                (
+                    torch.sqrt(twopi)
+                    * (
+                        (all_ent_means ** 2 * all_ent_sigmas + 2 * all_ent_sigmas ** 3)
+                        * torch.exp(-1 / 2 * (all_ent_means / all_ent_sigmas) ** 2)
+                    )
+                    + (
+                        3 * torch.abs(all_ent_means) * all_ent_sigmas ** 2
+                        + torch.abs(all_ent_means) ** 3
+                    )
+                    * err
                 )
-                + 3 * torch.abs(all_ent_means) * all_ent_sigmas ** 2
-                + torch.abs(all_ent_means) ** 3 * err
+                / all_ent_means.size(1)
             ).sum(axis=1)
 
-            err = (
-                (
-                    torch.abs(all_p_means)
-                    / (torch.sqrt(torch.tensor(2.0)) * all_p_sigmas)
-                )
-                .numpy()
+            err = torch.abs(all_p_means) / (
+                torch.sqrt(torch.tensor(2.0)) * all_p_sigmas
             )
-            err = torch.as_tensor(special.erf(err))
-
+            err = torch.erf(err).to(self.device)
             embedder_pred.prior_variance = (
-                torch.sqrt(twopi)
-                * (
-                    all_p_means ** 2 * all_p_sigmas
-                    + 2
-                    * all_p_sigmas ** 3
-                    * torch.exp(-1 / 2 * (all_p_means / all_p_sigmas) ** 2)
+                (
+                    torch.sqrt(twopi)
+                    * (
+                        (all_p_means ** 2 * all_p_sigmas + 2 * all_p_sigmas ** 3)
+                        * torch.exp(-1 / 2 * (all_p_means / all_p_sigmas) ** 2)
+                    )
+                    + (
+                        3 * torch.abs(all_p_means) * all_p_sigmas ** 2
+                        + torch.abs(all_p_means) ** 3
+                    )
+                    * err
                 )
-                + 3 * torch.abs(all_p_means) * all_p_sigmas ** 2
-                + torch.abs(all_p_means) ** 3 * err
+                / all_p_means.size(1)
             ).sum(axis=1)
