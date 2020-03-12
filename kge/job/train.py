@@ -1008,7 +1008,8 @@ class TrainingJob1vsAllProbab(TrainingJob):
 
         var = self.config.get("1vsAllProbab.prior_variance")
         if var > 0:
-            # one global variance for all entities and relations (and coordinates)
+            # TODO: set different variance for predicates and entities
+            # one global variance for all entities and predicates (and their coordinates)
             self.learn_reg = False
             self.prior_variance_ent = var
             self.prior_variance_pred = var
@@ -1294,10 +1295,6 @@ class TrainingJob1vsAllProbab(TrainingJob):
             ) / all_p_means.size(1)
         elif self.norm_p == 3:
             twopi = torch.as_tensor(2 / math.pi).to(self.device)
-            err = torch.abs(all_ent_means) / (
-                torch.sqrt(torch.tensor(2.0)) * all_ent_sigmas
-            )
-            err = torch.erf(err).to(self.device)
             embedder_ent.prior_variance = (
                 (
                     torch.sqrt(twopi)
@@ -1309,15 +1306,14 @@ class TrainingJob1vsAllProbab(TrainingJob):
                         3 * torch.abs(all_ent_means) * all_ent_sigmas ** 2
                         + torch.abs(all_ent_means) ** 3
                     )
-                    * err
+                    * torch.erf(
+                        torch.abs(all_ent_means)
+                        / (torch.sqrt(torch.tensor(2.0)) * all_ent_sigmas)
+                    )
                 )
                 / all_ent_means.size(1)
             ).sum(axis=1)
 
-            err = torch.abs(all_p_means) / (
-                torch.sqrt(torch.tensor(2.0)) * all_p_sigmas
-            )
-            err = torch.erf(err).to(self.device)
             embedder_pred.prior_variance = (
                 (
                     torch.sqrt(twopi)
@@ -1329,7 +1325,10 @@ class TrainingJob1vsAllProbab(TrainingJob):
                         3 * torch.abs(all_p_means) * all_p_sigmas ** 2
                         + torch.abs(all_p_means) ** 3
                     )
-                    * err
+                    * torch.erf(
+                        torch.abs(all_p_means)
+                        / (torch.sqrt(torch.tensor(2.0)) * all_p_sigmas)
+                    )
                 )
                 / all_p_means.size(1)
             ).sum(axis=1)
