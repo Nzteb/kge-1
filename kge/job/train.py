@@ -1072,22 +1072,26 @@ class TrainingJob1vsAllProbab(TrainingJob):
         self.type_str = "1vsAllProbab"
         self.num_eps_samples = self.config.get("1vsAllProbab.reparameterize_samples")
         self.elbo_form = self.config.get("1vsAllProbab.elbo_form")
-        self.config.check("1vsAllProbab.elbo_form", ["kl", "ent"])
+        self.config.check("1vsAllProbab.elbo_form", ["kl", "entropy"])
         self.norm_p = self.config.get("1vsAllProbab.norm_p")
 
-        var = self.config.get("1vsAllProbab.prior_variance")
-        if var > 0:
+        var_ent = self.config.get("1vsAllProbab.prior_variance_ent")
+        var_pred = self.config.get("1vsAllProbab.prior_variance_pred")
+
+        if var_ent > 0 and var_pred > 0:
             # TODO: set different variance for predicates and entities
             # one global variance for all entities and predicates (and their coordinates)
             self.learn_reg = False
-            self.prior_variance_ent = var
-            self.prior_variance_pred = var
-        elif var == -1:
+            self.prior_variance_ent = var_ent
+            self.prior_variance_pred = var_pred
+        elif var_ent == -1 and var_pred == -1:
             self.learn_reg = True
             self.prior_variance_ent = None
             self.prior_variance_pred = None
         else:
-            raise Exception("Wrong parameter for prior_sigma_sq")
+            raise Exception(
+                "Prior_variant_ent/pred have to be both bigger than zero" " or both -1"
+            )
 
         if self.model.get_s_embedder() != self.model.get_o_embedder():
             raise Exception("Training scheme only supports using same embedders")
@@ -1248,7 +1252,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
         #  because it depends on the training and batch and e.g. epsilons
         if self.elbo_form == "kl":
             loss_value += self._process_penalty_kl(batch)
-        elif self.elbo_form == "ent":
+        elif self.elbo_form == "entropy":
             loss_value += self._process_penalty_entropy(batch)
 
         # all done
@@ -1348,8 +1352,14 @@ class TrainingJob1vsAllProbab(TrainingJob):
     @torch.no_grad()
     def update_prior_variances(self, batch):
         """Calculate closed form updates for entity/relation specific regularization"""
-        all_ent_means, all_ent_sigmas = batch["all_ent_means"].cpu(), batch["all_ent_sigmas"].cpu()
-        all_p_means, all_p_sigmas = batch["all_p_means"].cpu(), batch["all_p_sigmas"].cpu()
+        all_ent_means, all_ent_sigmas = (
+            batch["all_ent_means"].cpu(),
+            batch["all_ent_sigmas"].cpu(),
+        )
+        all_p_means, all_p_sigmas = (
+            batch["all_p_means"].cpu(),
+            batch["all_p_sigmas"].cpu(),
+        )
         embedder_ent = self.model.get_o_embedder()
         embedder_pred = self.model.get_p_embedder()
 
