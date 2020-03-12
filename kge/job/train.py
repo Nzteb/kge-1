@@ -1294,7 +1294,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
                 (all_p_means ** 2).sum(axis=1) + (all_p_sigmas ** 2).sum(axis=1)
             ) / all_p_means.size(1)
         elif self.norm_p == 3:
-            twopi = torch.as_tensor(2 / math.pi).to(self.device)
+            twopi = torch.as_tensor(2 / math.pi)
             embedder_ent.prior_variance = (
                 (
                     torch.sqrt(twopi)
