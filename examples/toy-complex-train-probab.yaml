@@ -1,5 +1,5 @@
 job.type: train
-dataset.name: toy
+dataset.name: fb15k-237
 
 train:
   loss: kl
@@ -18,7 +18,7 @@ train:
   # set to -1 to learn prior variances for every entity/relations
   prior_variance: -1
   elbo_form: ent
-  norm_p: 2
+  norm_p: 3
 
 
 valid.filter_with_test: True
