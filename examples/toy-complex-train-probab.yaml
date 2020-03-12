@@ -18,8 +18,8 @@ train:
   # set to -1 to learn prior variances for every entity/relations
   prior_variance_ent: -1
   prior_variance_pred: -1
-  elbo_form: kl
-  norm_p: 2
+  elbo_form: entropy
+  norm_p: 3
 
 
 valid.filter_with_test: True
