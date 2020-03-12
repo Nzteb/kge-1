@@ -1,5 +1,5 @@
 job.type: train
-dataset.name: fb15k-237
+dataset.name: toy
 
 train:
   loss: kl
@@ -16,9 +16,10 @@ train:
 1vsAllProbab:
   reparameterize_samples: 2
   # set to -1 to learn prior variances for every entity/relations
-  prior_variance: -1
-  elbo_form: ent
-  norm_p: 3
+  prior_variance_ent: -1
+  prior_variance_pred: -1
+  elbo_form: kl
+  norm_p: 2
 
 
 valid.filter_with_test: True

@@ -284,8 +284,9 @@ negative_sampling:
   # Prior variance for all entities (inverse of regularization strength)
   # If set it will set one regularization term for all coordinates of all embeddings
   # If -1 then for every entity and relation regularization terms will be learned
-  prior_variance: 1
-  # "kl" (KL-form) or "ent" (entropy form)
+  prior_variance_ent: 1
+  prior_variance_pred: 1
+  # "kl" (KL-form) or "enttropy" (entropy form)
   elbo_form: kl
   # norm; should be 2 to compare probabilistic models; e.g. not applicable in the kl
   # form of the elbo as this comes from a gaussian
