@@ -1348,8 +1348,8 @@ class TrainingJob1vsAllProbab(TrainingJob):
     @torch.no_grad()
     def update_prior_variances(self, batch):
         """Calculate closed form updates for entity/relation specific regularization"""
-        all_ent_means, all_ent_sigmas = batch["all_ent_means"], batch["all_ent_sigmas"]
-        all_p_means, all_p_sigmas = batch["all_p_means"], batch["all_p_sigmas"]
+        all_ent_means, all_ent_sigmas = batch["all_ent_means"].cpu(), batch["all_ent_sigmas"].cpu()
+        all_p_means, all_p_sigmas = batch["all_p_means"].cpu(), batch["all_p_sigmas"].cpu()
         embedder_ent = self.model.get_o_embedder()
         embedder_pred = self.model.get_p_embedder()
 
