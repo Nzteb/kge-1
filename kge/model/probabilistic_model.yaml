@@ -6,6 +6,7 @@ probabilistic_model:
     type: complex
     entity_embedder:
       type: probabilistic_embedder
+      +++: +++
     relation_embedder:
       type: probabilistic_embedder
-    +++: +++
+      +++: +++
