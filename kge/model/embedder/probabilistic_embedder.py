@@ -31,9 +31,10 @@ class ProbabilisticEmbedder(KgeEmbedder):
 
         ### Probabilistic Extensions ###
 
-        # TODO you only need this when there is no global prior variance
         # does not need to be initialized as it is closed-form updated
-        self.prior_variance = torch.zeros(self.vocab_size)
+        if self.config.get("1vsAllProbab.prior_variance_ent") == -1 \
+            and self.config.get("1vsAllProbab.prior_variance_pred") == -1:
+            self.prior_variance = torch.zeros(self.vocab_size)
 
         # setup means
         self.means = torch.nn.Parameter(torch.empty(self.vocab_size, self.dim))
