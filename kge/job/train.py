@@ -1299,7 +1299,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
         penalties_entropy -= torch.log(all_ent_sigmas).sum()
         penalties_entropy -= torch.log(all_p_sigmas).sum()
         # scale penalty with size of dataset (2*num triples) to match expectations
-        penalties = (penalties_entropy + penalties_reg) / 1 (
+        penalties = (penalties_entropy + penalties_reg) / (
             2 * len(self.dataset.train())
         )
         penalties.backward()
