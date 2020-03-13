@@ -97,7 +97,7 @@ class ProbabilisticEmbedder(KgeEmbedder):
         return {"means": means, "sigmas": sigmas}
 
     def _get_sigma(self):
-        return torch.sqrt(self.phi**2)
+        return torch.abs(self.phi)
 
     def embed(self, indexes: Tensor) -> Tensor:
         return self._embed(self.means[indexes.long()], self._get_sigma()[indexes.long()])
