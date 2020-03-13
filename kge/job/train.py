@@ -1005,6 +1005,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
         self.elbo_form = self.config.get("1vsAllProbab.elbo_form")
         self.config.check("1vsAllProbab.elbo_form", ["kl", "entropy"])
         self.norm_p = self.config.get("1vsAllProbab.norm_p")
+        self.alpha = 0.0001
 
         var_ent = self.config.get("1vsAllProbab.prior_variance_ent")
         var_pred = self.config.get("1vsAllProbab.prior_variance_pred")
@@ -1207,8 +1208,8 @@ class TrainingJob1vsAllProbab(TrainingJob):
             prior_variance_pred = embedder_pred.prior_variance.to(self.device)
 
         norm_p = self.norm_p  # p-norm
-        penalties_reg = torch.zeros(1).to(self.config.get("job.device"))
-        penalties_entropy = torch.zeros(1).to(self.config.get("job.device"))
+        penalties_reg = torch.zeros(1).to(self.device)
+        penalties_entropy = torch.zeros(1).to(self.device)
 
         # TODO vectorize as above
         for i in range(self.num_eps_samples):
@@ -1232,8 +1233,8 @@ class TrainingJob1vsAllProbab(TrainingJob):
 
         penalties_reg = penalties_reg / self.num_eps_samples
         # entropy term of variational gaussian and prior gaussian
-        penalties_entropy -= torch.log(all_ent_sigmas).sum()
-        penalties_entropy -= torch.log(all_p_sigmas).sum()
+        penalties_entropy -= torch.log(self.alpha + all_ent_sigmas).sum()
+        penalties_entropy -= torch.log(self.alpha + all_p_sigmas).sum()
         # scale penalty with size of dataset (2*num triples) to match expectations
         penalties = (penalties_entropy + penalties_reg) / (
             2 * len(self.dataset.train())
@@ -1265,13 +1266,13 @@ class TrainingJob1vsAllProbab(TrainingJob):
         all_ent_means, all_ent_sigmas = batch["all_ent_means"], batch["all_ent_sigmas"]
         all_p_means, all_p_sigmas = batch["all_p_means"], batch["all_p_sigmas"]
         penalties = (
-            torch.log(prior_sigma_ent / all_ent_sigmas.transpose(0, 1))
+            torch.log(self.alpha + prior_sigma_ent / all_ent_sigmas.transpose(0, 1))
             + (all_ent_sigmas ** 2 + all_ent_means ** 2).transpose(0, 1)
             / (2 * prior_variance_ent)
         ).sum()
 
         penalties += (
-            torch.log(prior_sigma_pred / all_p_sigmas.transpose(0, 1))
+            torch.log(self.alpha + prior_sigma_pred / all_p_sigmas.transpose(0, 1))
             + (all_p_sigmas ** 2 + all_p_means ** 2).transpose(0, 1)
             / (2 * prior_variance_pred)
         ).sum()
@@ -1342,3 +1343,8 @@ class TrainingJob1vsAllProbab(TrainingJob):
                 )
                 / all_p_means.size(1)
             ).sum(axis=1)
+
+        # ensure stability
+        embedder_ent.prior_variance[torch.isnan(embedder_ent.prior_variance)] = self.alpha
+        embedder_pred.prior_variance[torch.isnan(embedder_pred.prior_variance)] = self.alpha
+
