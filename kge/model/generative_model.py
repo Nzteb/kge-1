@@ -15,10 +15,20 @@ class GenerativeScorer(RelationalScorer):
         super().__init__(config, dataset, configuration_key)
         self._base_scorer: RelationalScorer
 
-    def score_emb_spo(self, s_emb: Tensor, p_emb: Tensor, o_emb: Tensor):
-        return torch.log(torch.exp(s_emb).sum(axis=1)).view(-1, 1) +\
-               self._base_scorer.score_emb_spo(s_emb, p_emb, torch.ones_like(s_emb)) +\
-               self._base_scorer.score_emb_spo(s_emb, p_emb, o_emb)
+    def score_emb(self, s_emb: Tensor, p_emb: Tensor, o_emb: Tensor, combine: str):
+        if combine == "spo":
+            return torch.log(torch.exp(s_emb).sum(axis=1)).view(-1, 1) +\
+                self._base_scorer.score_emb(s_emb, p_emb, torch.ones_like(s_emb), combine) +\
+                self._base_scorer.score_emb(s_emb, p_emb, o_emb, combine)
+        elif combine == "sp*":
+            return torch.log(torch.exp(s_emb).sum(axis=1)).view(-1, 1).repeat(1,o_emb.size(0)) + \
+                   self._base_scorer.score_emb(s_emb, p_emb, torch.ones_like(o_emb), combine) +\
+                   self._base_scorer.score_emb(s_emb, p_emb, o_emb, combine)
+        elif combine == "*po":
+            return torch.log(torch.exp(s_emb).sum(axis=1)).view(1, -1).repeat(o_emb.size(0),1) + \
+                   self._base_scorer.score_emb(s_emb, p_emb, torch.ones_like(o_emb), combine) + \
+                   self._base_scorer.score_emb(s_emb, p_emb, o_emb, combine)
+
 
 class GenerativeModel(KgeModel):
     """Generative model"""
