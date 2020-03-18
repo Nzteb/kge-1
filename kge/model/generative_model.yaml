@@ -1,0 +1,14 @@
+import: [lookup_embedder, complex]
+
+generative_model:
+  class_name: GenerativeModel
+  base_model:
+    type: complex
+    +++: +++
+
+  entity_embedder:
+    type: lookup_embedder
+    +++: +++
+  relation_embedder:
+    type: lookup_embedder
+    +++: +++

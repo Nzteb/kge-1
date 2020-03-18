@@ -20,3 +20,4 @@ from kge.model.simple import SimplE
 # meta models
 from kge.model.reciprocal_relations_model import ReciprocalRelationsModel
 from kge.model.probabilistic_model import ProbabilisticModel
+from kge.model.generative_model import GenerativeModel

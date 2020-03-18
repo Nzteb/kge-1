@@ -1416,4 +1416,3 @@ class TrainingJob1vsAllProbab(TrainingJob):
         # ensure stability
         embedder_ent.prior_variance[torch.isnan(embedder_ent.prior_variance)] = self.alpha
         embedder_pred.prior_variance[torch.isnan(embedder_pred.prior_variance)] = self.alpha
-
