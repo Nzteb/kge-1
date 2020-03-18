@@ -1038,17 +1038,6 @@ class TrainingJob1vsAll(TrainingJob):
         batch_size = len(triples)
         prepare_time += time.time()
 
-        # forward/backward pass (po)
-        #forward_time -= time.time()
-        scores_po = self.model.score_po(triples[:, 1], triples[:, 2])
-        loss_value_po = self.loss(scores_po, triples[:, 0]) / batch_size
-        #loss_value += loss_value_po.item()
-        #forward_time += time.time()
-        #backward_time -= time.time()
-        loss_value_po.backward()
-        #backward_time += time.time()
-
-
         # forward/backward pass (sp)
         forward_time = -time.time()
         scores_sp = self.model.score_sp(triples[:, 0], triples[:, 1])
@@ -1059,7 +1048,15 @@ class TrainingJob1vsAll(TrainingJob):
         loss_value_sp.backward()
         backward_time += time.time()
 
-
+        # forward/backward pass (po)
+        forward_time -= time.time()
+        scores_po = self.model.score_po(triples[:, 1], triples[:, 2])
+        loss_value_po = self.loss(scores_po, triples[:, 0]) / batch_size
+        loss_value += loss_value_po.item()
+        forward_time += time.time()
+        backward_time -= time.time()
+        loss_value_po.backward()
+        backward_time += time.time()
 
         # all done
         return TrainingJob._ProcessBatchResult(
