@@ -1,7 +1,14 @@
+import: [complex, generative_model]
 job.type: train
 dataset.name: toy
 
-model: generative_model
+
+model: reciprocal_relations_model
+reciprocal_relations_model:
+  base_model:
+    +++: +++
+    type: generative_model
+  class_name: ReciprocalRelationsModel
 
 valid.filter_with_test: True
 valid.every: 5
