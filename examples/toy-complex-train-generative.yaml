@@ -9,8 +9,8 @@ valid.filter_with_test: True
 valid.every: 5
 
 train:
-  loss: bce
-  type: KvsAll
+  loss: kl
+  type: 1vsAll
   optimizer: Adagrad
   optimizer_args:
     lr: 0.4
