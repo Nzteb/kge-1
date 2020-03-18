@@ -18,13 +18,12 @@ train:
   type: 1vsAll
   optimizer: Adagrad
   optimizer_args:
-    lr: 0.8
+    lr: 0.99
   lr_scheduler: ReduceLROnPlateau
   lr_scheduler_args:
     mode: max
     patience: 4
-  max_epochs: 100
-
+  max_epochs: 20
 eval.metrics_per.head_and_tail: True
 
 
