@@ -23,7 +23,7 @@ train:
   lr_scheduler_args:
     mode: max
     patience: 4
-  max_epochs: 20
+  max_epochs: 10
 eval.metrics_per.head_and_tail: True
 
 
