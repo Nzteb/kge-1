@@ -22,34 +22,31 @@ class GenerativeScorer(RelationalScorer):
         )
 
     def score_emb(self, s_emb: Tensor, p_emb: Tensor, o_emb: Tensor, combine: str):
-        if combine == "spo":
-            return (
-                torch.log(torch.exp(s_emb).sum(axis=1)).view(-1, 1)
-                + self._base_scorer.score_emb(
-                    s_emb, p_emb, torch.ones_like(s_emb), combine
+
+        # score p(s,p,o) = p(o)p(p|o)p(s|p,o)
+        if True:
+            if combine == "spo":
+                return (
+                    torch.log(torch.exp(o_emb).sum(axis=1)).view(-1, 1)
+                    + self._base_scorer.score_emb(
+                        torch.ones_like(s_emb), p_emb, o_emb, combine
+                    )
+                    + self._base_scorer.score_emb(s_emb, p_emb, o_emb, combine)
                 )
-                + self._base_scorer.score_emb(s_emb, p_emb, o_emb, combine)
-            )
-        elif combine == "sp*":
-            return (
-                torch.log(torch.exp(s_emb).sum(axis=1))
-                .view(-1, 1)
-                .repeat(1, o_emb.size(0))
-                + self._base_scorer.score_emb(
-                    s_emb, p_emb, torch.ones_like(o_emb), combine
+            elif combine == "sp*":
+                return (
+                    torch.log(torch.exp(o_emb).sum(axis=1))
+                    .view(1, -1)
+                    .repeat(s_emb.size(0),1)
+                    + self._base_scorer.score_emb(
+                        torch.ones_like(s_emb), p_emb, o_emb, combine
+                    )
+                    + self._base_scorer.score_emb(s_emb, p_emb, o_emb, combine)
                 )
-                + self._base_scorer.score_emb(s_emb, p_emb, o_emb, combine)
-            )
-        elif combine == "*po":
-            return (
-                torch.log(torch.exp(s_emb).sum(axis=1))
-                .view(1, -1)
-                .repeat(o_emb.size(0), 1)
-                + self._base_scorer.score_emb(
-                    s_emb, p_emb, torch.ones_like(o_emb), combine
+            elif combine == "*po":
+                raise Exception(
+                    "Can only rank heads, i.e., be used with reciprocal model"
                 )
-                + self._base_scorer.score_emb(s_emb, p_emb, o_emb, combine)
-            )
 
 
 class GenerativeModel(KgeModel):
@@ -59,3 +56,11 @@ class GenerativeModel(KgeModel):
         super().__init__(
             config, dataset, GenerativeScorer, configuration_key=configuration_key
         )
+    def change_mode(self, mode:str):
+        if mode == "valid":
+            self.get_scorer().mode = "valid"
+        elif mode == "train":
+            self.get_scorer().mode = "train"
+        else:
+            raise Exception("Wrong scorer mode for generative scorer")
+
