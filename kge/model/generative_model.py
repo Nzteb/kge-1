@@ -82,47 +82,68 @@ class GenerativeModel(KgeModel):
         if direction == "o":
 
             o_all_emb = self.get_o_embedder().embed_all()
-            o_pr = torch.logsumexp(o_all_emb[o], dim=1) - torch.logsumexp(o_all_emb,dim=(0,1))
+            o_pr = torch.logsumexp(o_all_emb[o], dim=1) - torch.logsumexp(
+                o_all_emb, dim=(0, 1)
+            )
 
             s_all_emb = self.get_s_embedder().embed_all()
             p_all_emb = self.get_p_embedder().embed_all()[
                 : self.dataset.num_relations()
             ]
-            po_norm = self._scorer.score_emb(
+            po_pr = self._scorer.score_emb(
                 torch.ones_like(s_all_emb[s]), p_all_emb, o_all_emb[o], combine="s*o"
+            )[torch.arange(len(o)), p] - torch.logsumexp(
+                self._scorer.score_emb(
+                    torch.ones_like(s_all_emb[s]),
+                    p_all_emb,
+                    o_all_emb[o],
+                    combine="s*o",
+                ),
+                dim=1,
             )
-            po_pr = po_norm[torch.arange(len(o)), p] \
-                    - torch.logsumexp(po_norm, dim=1)
 
-            spo_norm = self._scorer.score_emb(
+            spo_pr = self._scorer.score_emb(
                 s_all_emb, p_all_emb[p], o_all_emb[o], combine="*po"
+            )[torch.arange(len(o)), s] - torch.logsumexp(
+                self._scorer.score_emb(
+                    s_all_emb, p_all_emb[p], o_all_emb[o], combine="*po"
+                ),
+                dim=1,
             )
-            spo_pr = spo_norm[torch.arange(len(o)), s]  \
-                     - torch.logsumexp(spo_norm, dim=1)
 
             # joint log probability  log p(s,p,o)
             return o_pr + po_pr + spo_pr
         # use recirocal relations
         elif direction == "s":
             s_all_emb = self.get_s_embedder().embed_all()
-            s_pr = torch.logsumexp(s_all_emb[s], dim=1) \
-                   - torch.logsumexp(s_all_emb,dim=(0,1))
+            s_pr = torch.logsumexp(s_all_emb[s], dim=1) - torch.logsumexp(
+                s_all_emb, dim=(0, 1)
+            )
 
             o_all_emb = self.get_o_embedder().embed_all()
             p_all_emb = self.get_p_embedder().embed_all()[
                 self.dataset.num_relations() :
             ]
-            ps_norm = self._scorer.score_emb(
+            ps_pr = self._scorer.score_emb(
                 torch.ones_like(o_all_emb[o]), p_all_emb, s_all_emb[s], combine="s*o"
+            )[torch.arange(len(s)), p] - torch.logsumexp(
+                self._scorer.score_emb(
+                    torch.ones_like(o_all_emb[o]),
+                    p_all_emb,
+                    s_all_emb[s],
+                    combine="s*o",
+                ),
+                dim=1,
             )
-            ps_pr = ps_norm[torch.arange(len(s)), p] \
-                    - torch.logsumexp(ps_norm, dim=1)
 
-            spo_norm = self._scorer.score_emb(
+            spo_pr = self._scorer.score_emb(
                 o_all_emb, p_all_emb[p], s_all_emb[s], combine="*po"
+            )[torch.arange(len(s)), o] - torch.logsumexp(
+                self._scorer.score_emb(
+                    o_all_emb, p_all_emb[p], s_all_emb[s], combine="*po"
+                ),
+                dim=1,
             )
-            spo_pr = spo_norm[torch.arange(len(s)), o] \
-                     - torch.logsumexp(spo_norm, dim=1)
 
             # joint log probability with reciprocal relation
             return s_pr + ps_pr + spo_pr
@@ -167,12 +188,20 @@ class GenerativeModel(KgeModel):
     ) -> torch.Tensor:
 
         n = len(entity_subset)
-        scores_sp = self.score_spo(
-            s.repeat(n), p.repeat(n), entity_subset.repeat(len(s)), direction="o"
-        ).view(-1, len(s)).transpose(0, 1)
+        scores_sp = (
+            self.score_spo(
+                s.repeat(n), p.repeat(n), entity_subset.repeat(len(s)), direction="o"
+            )
+            .view(-1, len(s))
+            .transpose(0, 1)
+        )
 
-        scores_po = self.score_spo(
-            s.repeat(n), p.repeat(n), entity_subset.repeat(len(s)), direction="s"
-        ).view(-1, len(s)).transpose(0, 1)
+        scores_po = (
+            self.score_spo(
+                s.repeat(n), p.repeat(n), entity_subset.repeat(len(s)), direction="s"
+            )
+            .view(-1, len(s))
+            .transpose(0, 1)
+        )
 
         return torch.cat((scores_sp, scores_po), dim=1)
