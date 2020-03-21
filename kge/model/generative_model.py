@@ -126,7 +126,8 @@ class GenerativeModel(KgeModel):
             ]
             ps_pr = self._scorer.score_emb(
                 torch.ones_like(o_all_emb[o]), p_all_emb, s_all_emb[s], combine="s*o"
-            )[torch.arange(len(s)), p] - torch.logsumexp(
+            )[torch.arange(len(s)), p] \
+                    - torch.logsumexp(
                 self._scorer.score_emb(
                     torch.ones_like(o_all_emb[o]),
                     p_all_emb,
