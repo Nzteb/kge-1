@@ -169,10 +169,10 @@ class GenerativeModel(KgeModel):
         n = len(entity_subset)
         scores_sp = self.score_spo(
             s.repeat(n), p.repeat(n), entity_subset.repeat(len(s)), direction="o"
-        ).view(len(s), -1)
+        ).view(-1, len(s)).transpose(0, 1)
 
         scores_po = self.score_spo(
             s.repeat(n), p.repeat(n), entity_subset.repeat(len(s)), direction="s"
-        ).view(len(s), -1)
+        ).view(-1, len(s)).transpose(0, 1)
 
         return torch.cat((scores_sp, scores_po), dim=1)
