@@ -40,9 +40,9 @@ class ComplExScorer(RelationalScorer):
             out = (r_all * o_all).mm(s_all.transpose(0, 1))
         elif combine == "s*o":
             out = (s_all * o_all).mm(r_all.transpose(0, 1))
+            return out.view(s_emb.size(0), -1)
         else:
             return super().score_emb(s_emb, p_emb, o_emb, combine)
-
         return out.view(n, -1)
 
 
