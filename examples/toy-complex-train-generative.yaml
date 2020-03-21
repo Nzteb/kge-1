@@ -3,27 +3,26 @@ job.type: train
 dataset.name: toy
 
 
-model: reciprocal_relations_model
-reciprocal_relations_model:
-  base_model:
-    +++: +++
-    type: generative_model
-  class_name: ReciprocalRelationsModel
+model: generative_model
 
 valid.filter_with_test: True
 valid.every: 5
 
 train:
   loss: kl
-  type: 1vsAll
+  type: generative
   optimizer: Adagrad
   optimizer_args:
-    lr: 0.99
+    lr: 0.2
   lr_scheduler: ReduceLROnPlateau
   lr_scheduler_args:
     mode: max
     patience: 4
   max_epochs: 50
+  batch_size: 128
 eval.metrics_per.head_and_tail: True
+eval.chunk_size: 100
+
+lookup_embedder.regularize_weight: 0.00001
 
 
