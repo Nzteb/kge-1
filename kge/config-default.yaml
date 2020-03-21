@@ -295,7 +295,7 @@ negative_sampling:
   lp: 1
 
 generative:
-
+  empty: None
 
 ## VALIDATION AND EVALUATION ###################################################
 
