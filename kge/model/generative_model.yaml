@@ -1,8 +1,9 @@
-import: [lookup_embedder]
+import: [lookup_embedder, complex]
 
 generative_model:
   class_name: GenerativeModel
-  base_scorer: complex.ComplExScorer
+  base_model:
+    type: complex
   entity_embedder:
     type: lookup_embedder
     +++: +++

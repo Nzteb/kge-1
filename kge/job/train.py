@@ -131,6 +131,8 @@ class TrainingJob(Job):
             return TrainingJob1vsAll(config, dataset, parent_job)
         elif config.get("train.type") == "1vsAllProbab":
             return TrainingJob1vsAllProbab(config, dataset, parent_job)
+        elif config.get("train.type") =="generative":
+            return TrainingJobGenerative(config,dataset,parent_job)
         else:
             # perhaps TODO: try class with specified name -> extensibility
             raise ValueError("train.type")
@@ -1416,3 +1418,77 @@ class TrainingJob1vsAllProbab(TrainingJob):
         # ensure stability
         embedder_ent.prior_variance[torch.isnan(embedder_ent.prior_variance)] = self.alpha
         embedder_pred.prior_variance[torch.isnan(embedder_pred.prior_variance)] = self.alpha
+
+
+class TrainingJobGenerative(TrainingJob):
+
+    def __init__(self, config, dataset, parent_job=None):
+        super().__init__(config, dataset, parent_job)
+        self.is_prepared = False
+        config.log("Initializing spo training job...")
+        self.type_str = "Gen"
+
+        if self.__class__ == TrainingJob1vsAll:
+            for f in Job.job_created_hooks:
+                f(self)
+
+    def _prepare(self):
+        """Construct dataloader"""
+
+        if self.is_prepared:
+            return
+
+        self.num_examples = self.dataset.train().size(0)
+        self.loader = torch.utils.data.DataLoader(
+            range(self.num_examples),
+            collate_fn=lambda batch: {"triples": self.dataset.train()[batch, :].long()},
+            shuffle=True,
+            batch_size=self.batch_size,
+            num_workers=self.config.get("train.num_workers"),
+            pin_memory=self.config.get("train.pin_memory"),
+        )
+
+        self.is_prepared = True
+
+    def _process_batch(self, batch_index, batch) -> TrainingJob._ProcessBatchResult:
+        # prepare
+        prepare_time = -time.time()
+        triples = batch["triples"].to(self.device)
+        batch_size = len(triples)
+        prepare_time += time.time()
+
+        # forward/backward pass (sp)
+        forward_time = -time.time()
+        loss_sp = -(
+            self.model.score_spo(
+                triples[:,0], triples[:,1],
+                triples[:,2],
+                direction="o"
+            )
+        ).sum() / batch_size
+
+        loss_value = loss_sp.item()
+        forward_time += time.time()
+        backward_time = -time.time()
+        loss_sp.backward()
+        backward_time += time.time()
+
+        # forward/backward pass (po)
+        forward_time -= time.time()
+        loss_po = -(
+            self.model.score_spo(
+                triples[:, 0], triples[:, 1],
+                triples[:, 2],
+                direction="s"
+            )
+        ).sum() / batch_size
+        loss_value += loss_po.item()
+        forward_time += time.time()
+        backward_time -= time.time()
+        loss_po.backward()
+        backward_time += time.time()
+
+        # all done
+        return TrainingJob._ProcessBatchResult(
+            loss_value, batch_size, prepare_time, forward_time, backward_time
+        )
