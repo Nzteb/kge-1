@@ -6,13 +6,14 @@ dataset.name: toy
 model: generative_model
 
 valid.filter_with_test: True
-valid.every: 5
+valid.every: 1
 
 train:
+  loss: kl
   type: generative
   optimizer: Adagrad
   optimizer_args:
-    lr: 0.2
+    lr: 0.6
   lr_scheduler: ReduceLROnPlateau
   lr_scheduler_args:
     mode: max
