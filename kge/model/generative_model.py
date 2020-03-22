@@ -191,20 +191,25 @@ class GenerativeModel(KgeModel):
     ) -> torch.Tensor:
 
         n = len(entity_subset)
-        scores_sp = (
-            self.score_spo(
-                s.repeat(n), p.repeat(n), entity_subset.repeat(len(s)), direction="o"
-            )
-            .view(-1, len(s))
-            .transpose(0, 1)
+        m = len(s)
+
+        triples = torch.cat(
+            (
+                torch.cat((s.view(-1, 1), p.view(-1, 1)), dim=1).repeat(1, n).view(-1, 2),
+                entity_subset.view(-1, 1).repeat(m, 1)
+            ), dim=1
+
+        )
+        scores_sp = self.score_spo(triples[:, 0], triples[:, 1], triples[:, 2], direction="o").view(len(s), -1)
+
+        triples = torch.cat(
+            (
+                entity_subset.view(-1, 1).repeat(m, 1),
+                torch.cat((p.view(-1, 1), o.view(-1, 1)), dim=1).repeat(1, n).view(-1,2)
+            ), dim=1
+
         )
 
-        scores_po = (
-            self.score_spo(
-                entity_subset.repeat(len(s)), p.repeat(n), o.repeat(n), direction="s"
-            )
-            .view(-1, len(s))
-            .transpose(0, 1)
-        )
+        scores_po = self.score_spo(triples[:, 0], triples[:, 1], triples[:, 2], direction="s").view(len(s), -1)
 
         return torch.cat((scores_sp, scores_po), dim=1)
