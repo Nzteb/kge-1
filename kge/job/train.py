@@ -1359,7 +1359,7 @@ class TrainingJobGenerative(TrainingJob):
         config.log("Initializing spo training job...")
         self.type_str = "Gen"
 
-        if self.__class__ == TrainingJob1vsAll:
+        if self.__class__ == TrainingJobGenerative:
             for f in Job.job_created_hooks:
                 f(self)
 
