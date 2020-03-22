@@ -9,7 +9,6 @@ valid.filter_with_test: True
 valid.every: 5
 
 train:
-  loss: kl
   type: generative
   optimizer: Adagrad
   optimizer_args:

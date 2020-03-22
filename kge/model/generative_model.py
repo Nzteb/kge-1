@@ -201,7 +201,7 @@ class GenerativeModel(KgeModel):
 
         scores_po = (
             self.score_spo(
-                s.repeat(n), p.repeat(n), entity_subset.repeat(len(s)), direction="s"
+                entity_subset.repeat(len(s)), p.repeat(n), o.repeat(n), direction="s"
             )
             .view(-1, len(s))
             .transpose(0, 1)
