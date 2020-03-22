@@ -178,7 +178,9 @@ class GenerativeModel(KgeModel):
         raise NotImplementedError
 
     def score_so(self, s, o, p=None):
-        raise Exception("This is a reciprocal model and cannot score relations.")
+        raise Exception(
+            "This is a reciprocal model and cannot score undirected relations."
+        )
 
     def score_sp_po(
         self,
