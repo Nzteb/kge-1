@@ -1456,6 +1456,7 @@ class TrainingJobGenerative(TrainingJob):
         triples = batch["triples"].to(self.device)
         batch_size = len(triples)
         prepare_time += time.time()
+        self.model.mode = "train"
 
         # forward/backward pass (sp)
         forward_time = -time.time()
@@ -1487,6 +1488,8 @@ class TrainingJobGenerative(TrainingJob):
         backward_time -= time.time()
         loss_po.backward()
         backward_time += time.time()
+
+        self.model.mode = "score"
 
         # all done
         return TrainingJob._ProcessBatchResult(
