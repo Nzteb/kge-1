@@ -133,36 +133,26 @@ class GenerativeModel(KgeModel):
         entity_subset: torch.Tensor = None,
     ) -> torch.Tensor:
 
-        self.mode = "score"
-
-        n = len(entity_subset)
-        m = len(s)
-
-        triples = torch.cat(
-            (
-                torch.cat((s.view(-1, 1), p.view(-1, 1)), dim=1)
-                .repeat(1, n)
-                .view(-1, 2),
-                entity_subset.view(-1, 1).repeat(m, 1),
-            ),
-            dim=1,
-        )
-        scores_sp = self.score_spo(
-            triples[:, 0], triples[:, 1], triples[:, 2], direction="o"
-        ).view(len(s), -1)
-
-        triples = torch.cat(
-            (
-                entity_subset.view(-1, 1).repeat(m, 1),
-                torch.cat((p.view(-1, 1), o.view(-1, 1)), dim=1)
-                .repeat(1, n)
-                .view(-1, 2),
-            ),
-            dim=1,
-        )
-
-        scores_po = self.score_spo(
-            triples[:, 0], triples[:, 1], triples[:, 2], direction="s"
-        ).view(len(s), -1)
-
-        return torch.cat((scores_sp, scores_po), dim=1)
+        # this function is only used in eval, simply use the raw scores
+        
+        s = self.get_s_embedder().embed(s)
+        p_inv = self.get_p_embedder().embed(p + self.dataset.num_relations())
+        p = self.get_p_embedder().embed(p)
+        o = self.get_o_embedder().embed(o)
+        if self.get_s_embedder() is self.get_o_embedder():
+            if entity_subset is not None:
+                all_entities = self.get_s_embedder().embed(entity_subset)
+            else:
+                all_entities = self.get_s_embedder().embed_all()
+            sp_scores = self._scorer.score_emb(s, p, all_entities, combine="sp*")
+            po_scores = self._scorer.score_emb(o, p_inv, all_entities, combine="sp*")
+        else:
+            if entity_subset is not None:
+                all_objects = self.get_o_embedder().embed(entity_subset)
+                all_subjects = self.get_s_embedder().embed(entity_subset)
+            else:
+                all_objects = self.get_o_embedder().embed_all()
+                all_subjects = self.get_s_embedder().embed_all()
+            sp_scores = self._scorer.score_emb(s, p, all_objects, combine="sp*")
+            po_scores = self._scorer.score_emb(o, p_inv, all_subjects, combine="sp*")
+        return torch.cat((sp_scores, po_scores), dim=1)
