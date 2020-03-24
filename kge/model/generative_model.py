@@ -11,44 +11,6 @@ from kge.model.kge_model import RelationalScorer, KgeModel
 from pydoc import locate
 
 
-class GenerativeScorer(RelationalScorer):
-    """Generative scorer."""
-
-    def __init__(self, config: Config, dataset: Dataset, configuration_key=None):
-        super().__init__(config, dataset, configuration_key)
-        _scorer_type = self.get_option("base_scorer")
-        self._base_scorer: RelationalScorer = locate("kge.model." + _scorer_type)(
-            Config, Dataset, configuration_key=None
-        )
-
-    def score_emb(self, s_emb: Tensor, p_emb: Tensor, o_emb: Tensor, combine: str):
-
-        # score p(s,p,o) = p(o)p(p|o)p(s|p,o)
-        if True:
-            if combine == "spo":
-                return (
-                    torch.log(torch.exp(o_emb).sum(axis=1)).view(-1, 1)
-                    + self._base_scorer.score_emb(
-                        torch.ones_like(s_emb), p_emb, o_emb, combine
-                    )
-                    + self._base_scorer.score_emb(s_emb, p_emb, o_emb, combine)
-                )
-            elif combine == "sp*":
-                return (
-                    torch.log(torch.exp(o_emb).sum(axis=1))
-                    .view(1, -1)
-                    .repeat(s_emb.size(0), 1)
-                    + self._base_scorer.score_emb(
-                        torch.ones_like(s_emb), p_emb, o_emb, combine
-                    )
-                    + self._base_scorer.score_emb(s_emb, p_emb, o_emb, combine)
-                )
-            elif combine == "*po":
-                raise Exception(
-                    "Can only rank heads, i.e., be used with reciprocal model"
-                )
-
-
 class GenerativeModel(KgeModel):
     def __init__(self, config: Config, dataset: Dataset, configuration_key=None):
         self._init_configuration(config, configuration_key)
@@ -67,7 +29,7 @@ class GenerativeModel(KgeModel):
             config, dataset, base_model.get_scorer(), initialize_embedders=False
         )
         self._base_model = base_model
-
+        self.mode = "score"
         self._entity_embedder = self._base_model.get_s_embedder()
         self._relation_embedder = self._base_model.get_p_embedder()
 
@@ -78,43 +40,25 @@ class GenerativeModel(KgeModel):
         return super().penalty(**kwargs) + self._base_model.penalty(**kwargs)
 
     def score_spo(self, s: Tensor, p: Tensor, o: Tensor, direction=None) -> Tensor:
+        # learn the joint distribution in training
+        # p(s,p,o) = p(s)p(p|s)p(o|s,p); and also for reciprocal facts
+        if self.mode == "train":
+            return self._score_spo(s, p, o, direction=direction)
+        # score with the conditional which produces the same ranks as the
+        # raw scoring function
+        elif self.mode == "score":
+            if direction == "o":
+                return super().score_spo(s, p, o, "o")
+            elif direction == "s":
+                return super().score_spo(o, p + self.dataset.num_relations(), s, "o")
+            else:
+                raise Exception("Cannot compute " "undirected spo scores.")
+        else:
+            raise ValueError("Wrong mode for generative model.")
+
+    def _score_spo(self, s: Tensor, p: Tensor, o: Tensor, direction=None) -> Tensor:
 
         if direction == "o":
-
-            o_all_emb = self.get_o_embedder().embed_all()
-            o_pr = torch.logsumexp(o_all_emb[o], dim=1) - torch.logsumexp(
-                o_all_emb, dim=(0, 1)
-            )
-
-            s_all_emb = self.get_s_embedder().embed_all()
-            p_all_emb = self.get_p_embedder().embed_all()[
-                : self.dataset.num_relations()
-            ]
-            po_pr = self._scorer.score_emb(
-                torch.ones_like(s_all_emb[s]), p_all_emb, o_all_emb[o], combine="s*o"
-            )[torch.arange(len(o)), p] - torch.logsumexp(
-                self._scorer.score_emb(
-                    torch.ones_like(s_all_emb[s]),
-                    p_all_emb,
-                    o_all_emb[o],
-                    combine="s*o",
-                ),
-                dim=1,
-            )
-
-            spo_pr = self._scorer.score_emb(
-                s_all_emb, p_all_emb[p], o_all_emb[o], combine="*po"
-            )[torch.arange(len(o)), s] - torch.logsumexp(
-                self._scorer.score_emb(
-                    s_all_emb, p_all_emb[p], o_all_emb[o], combine="*po"
-                ),
-                dim=1,
-            )
-
-            # joint log probability  log p(s,p,o)
-            return o_pr + po_pr + spo_pr
-        # use recirocal relations
-        elif direction == "s":
             s_all_emb = self.get_s_embedder().embed_all()
             s_pr = torch.logsumexp(s_all_emb[s], dim=1) - torch.logsumexp(
                 s_all_emb, dim=(0, 1)
@@ -122,32 +66,49 @@ class GenerativeModel(KgeModel):
 
             o_all_emb = self.get_o_embedder().embed_all()
             p_all_emb = self.get_p_embedder().embed_all()[
+                : self.dataset.num_relations()
+            ]
+
+            ps_pr = self._scorer.score_emb(
+                s_all_emb[s], p_all_emb, torch.ones_like(o_all_emb[o]), combine="s*o"
+            )
+            ps_pr = ps_pr[torch.arange(len(s)), p] - torch.logsumexp(ps_pr, dim=1)
+            # TODO: you might want to do the scoring only once..
+            spo_pr = self._scorer.score_emb(
+                s_all_emb[s], p_all_emb[p], o_all_emb, combine="sp*"
+            )
+            spo_pr = spo_pr[torch.arange(len(s)), o] - torch.logsumexp(spo_pr, dim=1)
+
+            # joint log probability
+            return s_pr + ps_pr + spo_pr
+
+        elif direction == "s":
+
+            o_all_emb = self.get_o_embedder().embed_all()
+            o_pr = torch.logsumexp(o_all_emb[o], dim=1) - torch.logsumexp(
+                o_all_emb, dim=(0, 1)
+            )
+
+            # TODO reciprocal yes no
+            s_all_emb = self.get_s_embedder().embed_all()
+            p_all_emb = self.get_p_embedder().embed_all()[
                 self.dataset.num_relations() :
             ]
-            ps_pr = self._scorer.score_emb(
-                torch.ones_like(o_all_emb[o]), p_all_emb, s_all_emb[s], combine="s*o"
-            )[torch.arange(len(s)), p] \
-                    - torch.logsumexp(
-                self._scorer.score_emb(
-                    torch.ones_like(o_all_emb[o]),
-                    p_all_emb,
-                    s_all_emb[s],
-                    combine="s*o",
-                ),
-                dim=1,
+            po_pr = self._scorer.score_emb(
+                o_all_emb[o], p_all_emb, torch.ones_like(s_all_emb[s]), combine="s*o"
             )
+            po_pr = po_pr[torch.arange(len(o)), p] - torch.logsumexp(po_pr, dim=1)
 
             spo_pr = self._scorer.score_emb(
-                o_all_emb, p_all_emb[p], s_all_emb[s], combine="*po"
-            )[torch.arange(len(s)), o] - torch.logsumexp(
-                self._scorer.score_emb(
-                    o_all_emb, p_all_emb[p], s_all_emb[s], combine="*po"
-                ),
-                dim=1,
+                o_all_emb[o], p_all_emb[p], s_all_emb, combine="sp*"
             )
 
-            # joint log probability with reciprocal relation
-            return s_pr + ps_pr + spo_pr
+            spo_pr = spo_pr[torch.arange(len(o)), s] - torch.logsumexp(spo_pr, dim=1)
+
+            # joint log probability  log p(s,p,o)
+            return o_pr + po_pr + spo_pr
+        # use recirocal relations
+
         else:
             raise Exception(
                 "Reciprocal models cannot compute " "undirected spo scores."
@@ -155,24 +116,6 @@ class GenerativeModel(KgeModel):
 
     def score_sp(self, s, p, o=None):
         raise NotImplementedError
-        # if o == None:
-        #     o = torch.arange(self.dataset.num_entities())
-        #
-        # o_all_emb = self.get_o_embedder().embed_all()
-        # o_pr = torch.exp(o_all_emb[o]).sum(axis=1) / torch.exp(o_all_emb).sum()
-        #
-        # s_all_emb = self.get_s_embedder().embed_all()
-        # p_all_emb = self.get_p_embedder().embed_all()[:self.dataset.num_relations()]
-        # po_norm = self._scorer.score_emb(torch.ones_like(o_all_emb[o]), p_all_emb,
-        #                                  o_all_emb[o], combine="s*o")
-        # po_pr = torch.exp(po_norm[:,p]).transpose(0,1) / torch.exp(po_norm).sum(axis=1)
-        #
-        # spo_norm = self._scorer.score_emb(s_all_emb, p_all_emb[p], o_all_emb[o],
-        #                                   combine="*po")
-        # spo_pr = spo_norm[torch.arange(len(o)), s] / spo_norm.sum(axis=1)
-        #
-        # # joint probability p(s,p,o)
-        # return o_pr * po_pr * spo_pr
 
     def score_po(self, p, o, s=None):
         raise NotImplementedError
@@ -195,21 +138,29 @@ class GenerativeModel(KgeModel):
 
         triples = torch.cat(
             (
-                torch.cat((s.view(-1, 1), p.view(-1, 1)), dim=1).repeat(1, n).view(-1, 2),
-                entity_subset.view(-1, 1).repeat(m, 1)
-            ), dim=1
-
+                torch.cat((s.view(-1, 1), p.view(-1, 1)), dim=1)
+                .repeat(1, n)
+                .view(-1, 2),
+                entity_subset.view(-1, 1).repeat(m, 1),
+            ),
+            dim=1,
         )
-        scores_sp = self.score_spo(triples[:, 0], triples[:, 1], triples[:, 2], direction="o").view(len(s), -1)
+        scores_sp = self.score_spo(
+            triples[:, 0], triples[:, 1], triples[:, 2], direction="o"
+        ).view(len(s), -1)
 
         triples = torch.cat(
             (
                 entity_subset.view(-1, 1).repeat(m, 1),
-                torch.cat((p.view(-1, 1), o.view(-1, 1)), dim=1).repeat(1, n).view(-1,2)
-            ), dim=1
-
+                torch.cat((p.view(-1, 1), o.view(-1, 1)), dim=1)
+                .repeat(1, n)
+                .view(-1, 2),
+            ),
+            dim=1,
         )
 
-        scores_po = self.score_spo(triples[:, 0], triples[:, 1], triples[:, 2], direction="s").view(len(s), -1)
+        scores_po = self.score_spo(
+            triples[:, 0], triples[:, 1], triples[:, 2], direction="s"
+        ).view(len(s), -1)
 
         return torch.cat((scores_sp, scores_po), dim=1)
