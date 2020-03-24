@@ -133,6 +133,8 @@ class GenerativeModel(KgeModel):
         entity_subset: torch.Tensor = None,
     ) -> torch.Tensor:
 
+        self.mode = "score"
+
         n = len(entity_subset)
         m = len(s)
 
