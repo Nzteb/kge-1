@@ -1,0 +1,12 @@
+import: [lookup_embedder, complex]
+
+factor:
+  class_name: FactorGraphModel
+  entity_embedder:
+    type: lookup_embedder
+    +++: +++
+  relation_embedder:
+    type: lookup_embedder
+    +++: +++
+  base_model:
+    type: complex
