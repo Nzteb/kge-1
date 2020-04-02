@@ -18,7 +18,6 @@ class ComplExScorer(RelationalScorer):
 
     def score_emb(self, s_emb, p_emb, o_emb, combine: str):
         n = p_emb.size(0)
-
         # Here we use a fast implementation of computing the ComplEx scores using
         # Hadamard products, as in Eq. (11) of paper.
         #

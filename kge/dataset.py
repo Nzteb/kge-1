@@ -55,6 +55,8 @@ class Dataset(Configurable):
         #: split-name to (n,3) int32 tensor
         self._triples: Dict[str, Tensor] = {}
 
+        self._attributes: Dict[str, Tensor] = {}
+
         #: meta data that is part if this dataset. Indexed by key.
         self._meta: Dict[str, Any] = {}
 
@@ -132,6 +134,37 @@ class Dataset(Configurable):
             self._triples[key] = triples
 
         return self._triples[key]
+
+    def load_attributes(self, key: str) -> Tensor:
+        if key not in self._attributes:
+            filename = self.config.get(f"dataset.files.{key}.filename")
+            filetype = self.config.get(f"dataset.files.{key}.type")
+            if filetype != "attributes":
+                raise ValueError(
+                    "Unexpected file type: "
+                    f"dataset.files.{key}.type='{filetype}', expected 'attributes'"
+                )
+            dtype = self.config.get(f"dataset.files.{key}.value")
+            attributes = Dataset._load_attributes(
+                os.path.join(self.folder, filename),
+                dtype
+            )
+            self.config.log(f"Loaded {len(attributes)} {key} attributes")
+            self._attributes[key] = attributes
+        return self._attributes[key]
+
+    @staticmethod
+    def _load_attributes(filename: str, dtype, delimiter="\t", use_pickle=False):
+        if use_pickle:
+            # TODO support pickle
+            raise NotImplementedError("Pickle support for attributes not implemented")
+        attributes = np.loadtxt(filename, usecols=range(0, 3), dtype=dtype)
+        attributes = torch.from_numpy(attributes)
+        return attributes
+
+    #TODO move down to #access
+    def get_attributes(self, key):
+        return self.load_attributes(key)
 
     @staticmethod
     def _load_map(
