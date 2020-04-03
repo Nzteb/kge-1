@@ -235,9 +235,45 @@ def create_default_index_functions(dataset: "Dataset"):
         dataset.index_functions[f"{obj}_id_to_index"] = IndexWrapper(
             _invert_ids, obj=obj
         )
+    for attribute in dataset.config.get("dataset.attributes"):
+        if dataset.config.get(f"dataset.files.{attribute}.key") == "entity":
+            # entity to attribute indices/values
+            dataset.index_functions[
+                f"entity_to_{attribute}_index"
+            ] = IndexWrapper(index_entity_attributes, attribute=attribute)
+            dataset.index_functions[
+                f"entity_to_{attribute}_values"
+            ] = IndexWrapper(index_entity_attributes, attribute=attribute)
+
+            # attribute to attribute values (needed for attribute statistics)
+            dataset.index_functions[
+                f"{attribute}_to_values"
+            ] = IndexWrapper(index_entity_attributes, attribute=attribute)
+        else:
+            raise NotImplementedError
 
 
-@numba.njit
+def index_entity_attributes(dataset, attribute):
+    """Create entity attribute indices. """
+
+    attributes = dataset.get_attributes(attribute)
+    # "entity_to_{attribute}_index" maps entity indices to indices of its attributes
+    ent_to_idx = defaultdict(list)
+    # "entity_to_{attribute}_values" maps entity indices to its attribute values
+    ent_to_val = defaultdict(list)
+    # "{attribute}_to_values" maps attribute indices to its attribute values
+    attr_to_val = defaultdict(list)
+    for i in range(attributes.size(0)):
+        row = attributes[i]
+        # TODO do the long conversion outside or somewhere else
+        ent_to_idx[row[0].long().item()].append(row[1].long().item())
+        ent_to_val[row[0].long().item()].append(row[2].item())
+        attr_to_val[row[1].long().item()].append(row[2].item())
+    dataset._indexes[f"entity_to_{attribute}_index"] = ent_to_idx
+    dataset._indexes[f"entity_to_{attribute}_values"] = ent_to_val
+    dataset._indexes[f"{attribute}_to_values"] = attr_to_val
+
+
 def where_in(x, y, not_in=False):
     """Retrieve the indices of the elements in x which are also in y.
 
