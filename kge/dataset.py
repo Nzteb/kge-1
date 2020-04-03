@@ -144,11 +144,21 @@ class Dataset(Configurable):
                     "Unexpected file type: "
                     f"dataset.files.{key}.type='{filetype}', expected 'attributes'"
                 )
+            # load attributes and store
             dtype = self.config.get(f"dataset.files.{key}.value")
             attributes = Dataset._load_attributes(
                 os.path.join(self.folder, filename),
                 dtype
             )
+            # load attribute id's
+            key_scope = self.config.get(f"dataset.files.{key}.key")
+            if key_scope == "entity":
+                self.load_map("entity_attribute_ids", as_list=True)
+            elif key_scope == "relation":
+                self.load_map("relation_attribute_ids", as_list=True)
+            else:
+                raise ValueError(f"Error in dataset.files.{key}.key")
+
             self.config.log(f"Loaded {len(attributes)} {key} attributes")
             self._attributes[key] = attributes
         return self._attributes[key]
