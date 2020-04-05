@@ -238,23 +238,39 @@ def create_default_index_functions(dataset: "Dataset"):
     for attribute in dataset.config.get("dataset.attributes"):
         if dataset.config.get(f"dataset.files.{attribute}.key") == "entity":
             # entity to attribute indices/values
-            dataset.index_functions[
-                f"entity_to_{attribute}_index"
-            ] = IndexWrapper(index_entity_attributes, attribute=attribute)
-            dataset.index_functions[
-                f"entity_to_{attribute}_values"
-            ] = IndexWrapper(index_entity_attributes, attribute=attribute)
+            dataset.index_functions[f"entity_to_{attribute}_index"] = IndexWrapper(
+                index_entity_attributes, attribute=attribute
+            )
+            dataset.index_functions[f"entity_to_{attribute}_values"] = IndexWrapper(
+                index_entity_attributes, attribute=attribute
+            )
 
             # attribute to attribute values (needed for attribute statistics)
-            dataset.index_functions[
-                f"{attribute}_to_values"
-            ] = IndexWrapper(index_entity_attributes, attribute=attribute)
+            dataset.index_functions[f"{attribute}_to_values"] = IndexWrapper(
+                index_entity_attributes, attribute=attribute
+            )
+            if dataset.config.get(f"dataset.files.{attribute}.value") in [
+                "float",
+                "int",
+            ]:
+                dataset.index_functions[f"{attribute}_statistics"] = IndexWrapper(
+                    index_numeric_attribute_statistics, attribute=attribute
+                )
         else:
             raise NotImplementedError
 
 
+def index_numeric_attribute_statistics(dataset, attribute):
+    """Create attribute statistics for numerical attributes."""
+    attr_values = dataset.index(f"{attribute}_to_values")
+    stats_index = defaultdict(dict)
+    for attr, values in attr_values.items():
+        stats_index[attr] = {"mean": np.mean(values), "std": np.std(values)}
+    dataset._indexes[f"{attribute}_statistics"] = stats_index
+
+
 def index_entity_attributes(dataset, attribute):
-    """Create entity attribute indices. """
+    """Create entity attribute indices."""
 
     attributes = dataset.get_attributes(attribute)
     # "entity_to_{attribute}_index" maps entity indices to indices of its attributes
@@ -263,6 +279,7 @@ def index_entity_attributes(dataset, attribute):
     ent_to_val = defaultdict(list)
     # "{attribute}_to_values" maps attribute indices to its attribute values
     attr_to_val = defaultdict(list)
+    # TODO adjust _group_by such that it generalizes to this
     for i in range(attributes.size(0)):
         row = attributes[i]
         # TODO do the long conversion outside or somewhere else
