@@ -168,6 +168,8 @@ class Dataset(Configurable):
         if use_pickle:
             # TODO support pickle
             raise NotImplementedError("Pickle support for attributes not implemented")
+        # TODO only use the datatype for the last column; the first two colums
+        #  denote entity/relation/triple index and the second attribute index
         attributes = np.loadtxt(filename, usecols=range(0, 3), dtype=dtype)
         attributes = torch.from_numpy(attributes)
         return attributes
