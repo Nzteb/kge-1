@@ -1,6 +1,7 @@
 import: [lookup_embedder, complex]
 
 factor:
+  features: None
   class_name: FactorGraphModel
   entity_embedder:
     type: lookup_embedder
