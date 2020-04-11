@@ -1,13 +1,9 @@
 import: [lookup_embedder, complex]
 
 factor:
-  features: None
+  feature_file: None
+  # use indicator features for the existence of attributes instead of attribute values
+  features_as_indicator: False
   class_name: FactorGraphModel
-  entity_embedder:
-    type: lookup_embedder
-    +++: +++
-  relation_embedder:
-    type: lookup_embedder
-    +++: +++
   base_model:
     type: complex

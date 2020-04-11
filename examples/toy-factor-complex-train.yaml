@@ -15,7 +15,8 @@ train:
 model: factor
 
 factor:
-  features: entity_numeric
+  feature_file: entity_numeric
+  features_as_indicator: True
 
 lookup_embedder:
   dim: 100
