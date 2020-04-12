@@ -157,15 +157,9 @@ class Dataset(Configurable):
                 os.path.join(self.folder, filename),
                 dtype
             )
-            # load attribute id's
-            key_scope = self.config.get(f"dataset.files.{key}.key")
-            if key_scope == "entity":
-                self.load_map("entity_attribute_ids", as_list=True)
-            elif key_scope == "relation":
-                self.load_map("relation_attribute_ids", as_list=True)
-            else:
-                raise ValueError(f"Error in dataset.files.{key}.key")
-
+            # load attribute map (idx->id)
+            ids_key = self.config.get(f"dataset.files.{key}.ids_name")
+            self.load_map(ids_key, as_list=True)
             self.config.log(f"Loaded {len(attributes)} {key} attributes")
             self._attributes[key] = attributes
         return self._attributes[key]
