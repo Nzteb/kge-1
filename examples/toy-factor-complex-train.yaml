@@ -5,7 +5,7 @@ train:
   type: 1vsAll
   optimizer: Adagrad
   optimizer_args:
-    lr: 0.1
+    lr: 0.2
   lr_scheduler: ReduceLROnPlateau
   lr_scheduler_args:
     mode: max
@@ -15,7 +15,8 @@ train:
 model: factor
 
 factor:
-  feature_file: entity_numeric
+  # a key in dataset.files with type=attributes
+  feature_file: train_entity_numeric
   features_as_indicator: True
 
 lookup_embedder:
