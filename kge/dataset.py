@@ -146,6 +146,13 @@ class Dataset(Configurable):
                 )
             # load attributes and store
             dtype = self.config.get(f"dataset.files.{key}.value")
+
+            if dtype not in ["float", "int", "str"]:
+                raise NotImplementedError(
+                    "Datatype for attribute not supported. Expected" 
+                    f" dataset.files.{filename}.value to be (float, str, int)"
+                )
+
             attributes = Dataset._load_attributes(
                 os.path.join(self.folder, filename),
                 dtype
@@ -168,10 +175,9 @@ class Dataset(Configurable):
         if use_pickle:
             # TODO support pickle
             raise NotImplementedError("Pickle support for attributes not implemented")
-        # TODO only use the datatype for the last column; the first two colums
-        #  denote entity/relation/triple index and the second attribute index
-        attributes = np.loadtxt(filename, usecols=range(0, 3), dtype=dtype)
-        attributes = torch.from_numpy(attributes)
+        # store as structured numpy array to allow for variable datatypes
+        dtype = {"str": "O", "int": "i4", "float": "f4"}[dtype]
+        attributes = np.loadtxt(filename, usecols=range(0, 3), dtype=f"i4, i4, {dtype}")
         return attributes
 
     #TODO move down to #access

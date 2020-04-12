@@ -236,30 +236,27 @@ def create_default_index_functions(dataset: "Dataset"):
             _invert_ids, obj=obj
         )
     for attribute in dataset.config.get("dataset.attributes"):
+        dtype = dataset.config.get(f"dataset.files.{attribute}.value")
         if dataset.config.get(f"dataset.files.{attribute}.key") == "entity":
             # entity to attribute indices/values
             dataset.index_functions[f"entity_to_{attribute}_index"] = IndexWrapper(
-                index_entity_attributes, attribute=attribute
+                index_entity_attributes, attribute=attribute, dtype=dtype
             )
             dataset.index_functions[f"entity_to_{attribute}_values"] = IndexWrapper(
-                index_entity_attributes, attribute=attribute
+                index_entity_attributes, attribute=attribute, dtype=dtype
             )
-
             # attribute to attribute values (needed for attribute statistics)
             dataset.index_functions[f"{attribute}_to_values"] = IndexWrapper(
-                index_entity_attributes, attribute=attribute
+                index_entity_attributes, attribute=attribute, dtype=dtype
             )
-            if dataset.config.get(f"dataset.files.{attribute}.value") in [
-                "float",
-                "int",
-            ]:
+            if dtype in ["float", "int"]:
                 dataset.index_functions[f"{attribute}_statistics"] = IndexWrapper(
                     index_numeric_attribute_statistics, attribute=attribute
                 )
-            # create sparse normalized attribute tensor
-            dataset.index_functions[f"{attribute}_sparse"] = IndexWrapper(
-                sparse_attribute_values, attribute=attribute
-            )
+                # create sparse normalized attribute tensor for numeric attributes
+                dataset.index_functions[f"{attribute}_sparse"] = IndexWrapper(
+                    sparse_attribute_values, attribute=attribute
+                )
         else:
             raise NotImplementedError
 
@@ -270,7 +267,7 @@ def sparse_attribute_values(dataset, attribute):
     stats = dataset.index(f"{attribute}_statistics")
     coords = []
     values = []
-    for i in range(attributes.size(0)):
+    for i in range(attributes.shape[0]):
         row = attributes[i]
         coords.append([row[0], row[1]])
         attr_stats = stats[row[1].item()]
@@ -295,7 +292,7 @@ def sparse_attribute_values(dataset, attribute):
 
 
 def index_numeric_attribute_statistics(dataset, attribute):
-    """Create attribute statistics for numerical attributes."""
+    """Create attribute statistics for numeric attributes."""
     attr_values = dataset.index(f"{attribute}_to_values")
     stats_index = defaultdict(dict)
     for attr, values in attr_values.items():
@@ -303,9 +300,8 @@ def index_numeric_attribute_statistics(dataset, attribute):
     dataset._indexes[f"{attribute}_statistics"] = stats_index
 
 
-def index_entity_attributes(dataset, attribute):
+def index_entity_attributes(dataset, attribute, dtype):
     """Create entity attribute indices."""
-
     attributes = dataset.get_attributes(attribute)
     # "entity_to_{attribute}_index" maps entity indices to indices of its attributes
     ent_to_idx = defaultdict(list)
@@ -314,16 +310,16 @@ def index_entity_attributes(dataset, attribute):
     # "{attribute}_to_values" maps attribute indices to its attribute values
     attr_to_val = defaultdict(list)
     # TODO adjust _group_by such that it generalizes to this
-    for i in range(attributes.size(0)):
+    for i in range(attributes.shape[0]):
         row = attributes[i]
-        # TODO do the long conversion outside or somewhere else
-        ent_to_idx[row[0].long().item()].append(row[1].long().item())
-        ent_to_val[row[0].long().item()].append(row[2].item())
-        attr_to_val[row[1].long().item()].append(row[2].item())
-
-    for index in [ent_to_idx, attr_to_val, ent_to_val]:
-        for key, val in index.items():
-            index[key] = torch.tensor(val)
+        ent_to_idx[row[0]].append(row[1])
+        ent_to_val[row[0]].append(row[2])
+        attr_to_val[row[1]].append(row[2])
+    # store numeric types as tensor keep others as list
+    if dtype in ["float", "int"]:
+        for index in [ent_to_idx, attr_to_val, ent_to_val]:
+            for key, val in index.items():
+                    index[key] = torch.tensor(val)
     dataset._indexes[f"entity_to_{attribute}_index"] = ent_to_idx
     dataset._indexes[f"entity_to_{attribute}_values"] = ent_to_val
     dataset._indexes[f"{attribute}_to_values"] = attr_to_val
