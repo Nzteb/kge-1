@@ -256,8 +256,42 @@ def create_default_index_functions(dataset: "Dataset"):
                 dataset.index_functions[f"{attribute}_statistics"] = IndexWrapper(
                     index_numeric_attribute_statistics, attribute=attribute
                 )
+            # create sparse normalized attribute tensor
+            dataset.index_functions[f"{attribute}_sparse"] = IndexWrapper(
+                sparse_attribute_values, attribute=attribute
+            )
         else:
             raise NotImplementedError
+
+
+def sparse_attribute_values(dataset, attribute):
+    """Calculate sparse tensor with normalized attribute values."""
+    attributes = dataset.get_attributes(attribute)
+    stats = dataset.index(f"{attribute}_statistics")
+    coords = []
+    values = []
+    for i in range(attributes.size(0)):
+        row = attributes[i]
+        coords.append([row[0], row[1]])
+        attr_stats = stats[row[1].item()]
+        std = attr_stats["std"]
+        # TODO this is needed when either an attribute is constant or if it only
+        #  appears once, then std=nan; maybe rather raise exception in attr_stats
+        if torch.isnan(std) or std.item() == 0:
+            std = 1
+        values.append(
+            ((row[2] - attr_stats["mean"]) / std).float()
+        )
+    dataset._indexes[f"{attribute}_sparse"] = torch.sparse.FloatTensor(
+        torch.LongTensor(coords).transpose(0, 1),
+        torch.tensor(values),
+        torch.Size(
+            [
+                dataset.num_entities(),
+                dataset.config.get(f"dataset.files.{attribute}.num_attributes")
+            ]
+        )
+    )
 
 
 def index_numeric_attribute_statistics(dataset, attribute):
@@ -265,7 +299,7 @@ def index_numeric_attribute_statistics(dataset, attribute):
     attr_values = dataset.index(f"{attribute}_to_values")
     stats_index = defaultdict(dict)
     for attr, values in attr_values.items():
-        stats_index[attr] = {"mean": np.mean(values), "std": np.std(values)}
+        stats_index[attr] = {"mean": torch.mean(values), "std": torch.std(values)}
     dataset._indexes[f"{attribute}_statistics"] = stats_index
 
 
@@ -286,19 +320,21 @@ def index_entity_attributes(dataset, attribute):
         ent_to_idx[row[0].long().item()].append(row[1].long().item())
         ent_to_val[row[0].long().item()].append(row[2].item())
         attr_to_val[row[1].long().item()].append(row[2].item())
+
+    for index in [ent_to_idx, attr_to_val, ent_to_val]:
+        for key, val in index.items():
+            index[key] = torch.tensor(val)
     dataset._indexes[f"entity_to_{attribute}_index"] = ent_to_idx
     dataset._indexes[f"entity_to_{attribute}_values"] = ent_to_val
     dataset._indexes[f"{attribute}_to_values"] = attr_to_val
 
 
+@numba.njit
 def where_in(x, y, not_in=False):
     """Retrieve the indices of the elements in x which are also in y.
-
     x and y are assumed to be 1 dimensional arrays.
-
     :params: not_in: if True, returns the indices of the of the elements in x
     which are not in y.
-
     """
     # np.isin is not supported in numba. Also: "i in y" raises an error in numba
     # setting njit(parallel=True) slows down the function
