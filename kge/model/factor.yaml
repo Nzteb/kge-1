@@ -7,3 +7,11 @@ factor:
   class_name: FactorGraphModel
   base_model:
     type: complex
+  # regularization of factor weights; set to "lp" or ""
+  regularize_factor_weights: 'lp'
+  regularize_factor_weights_args:
+    # Weight used for regularization
+    regularize_weight:  0.8e-4
+    # lp-norm
+    p: 2
+

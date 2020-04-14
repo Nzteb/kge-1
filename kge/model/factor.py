@@ -38,6 +38,15 @@ class FactorGraphModel(KgeModel):
         self.num_attributes = self.config.get(
             f"dataset.files.{self.feature_file}.num_attributes"
         )
+        self.regularize = self.config.get(
+            self.configuration_key + ".regularize_factor_weights"
+        )
+        self.regularize_p = self.config.get(
+            self.configuration_key + ".regularize_factor_weights_args.p"
+        )
+        self.regularize_weight = self.config.get(
+            self.configuration_key + ".regularize_factor_weights_args.regularize_weight"
+        )
         # weights for numeric features per relations
         # num rel x 1 + 2*num features
         # first column for the kge scoring; next part subject features then object
@@ -65,8 +74,28 @@ class FactorGraphModel(KgeModel):
     def prepare_job(self, job, **kwargs):
         self._base_model.prepare_job(job, **kwargs)
 
+    def _factor_weight_penalty(self):
+        result = []
+        if self.regularize == "" or self.regularize_weight == 0.0:
+            pass
+        elif self.regularize == "lp":
+            p = self.regularize_p
+            regularize_weight = self.regularize_weight
+            # unweighted Lp regularization
+            parameters = self._weights
+            if p % 2 == 1:
+                parameters = torch.abs(self._weights)
+            result += [
+                (
+                    f"{self.configuration_key}.L{p}_penalty",
+                    (regularize_weight / p * (parameters ** p)).sum(),
+                )
+            ]
+        return result
+
     def penalty(self, **kwargs):
-        return super().penalty(**kwargs) + self._base_model.penalty(**kwargs)
+        return super().penalty(**kwargs) + self._base_model.penalty(**kwargs) \
+               + self._factor_weight_penalty()
 
     def get_features(self, e: Tensor):
         """Return a dense feature tensor.
