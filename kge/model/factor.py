@@ -43,7 +43,7 @@ class FactorGraphModel(KgeModel):
         # first column for the kge scoring; next part subject features then object
         weights = torch.zeros(dataset.num_relations(), self.num_attributes*2+1)
         weights[:, 0] = 1
-        self._weights = torch.nn.Parameter(weights).to(self.device)
+        self._weights = torch.nn.Parameter(weights)
 
         # sparse tensor; num_features x num_entities
         self._sparse_values = self.dataset.index(
