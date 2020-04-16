@@ -1,6 +1,7 @@
 from torch import Tensor
 import torch.nn
 import torch.nn.functional
+import numpy as np
 
 from kge import Config, Dataset
 from kge.job import Job
@@ -87,7 +88,7 @@ class LookupEmbedder(KgeEmbedder):
             .long()
         ] = pretrained_embedder.embed(torch.from_numpy(pretrained_intersect_ind)).to(
             self._embeddings.weight.device
-        )
+
 
     def embed(self, indexes: Tensor) -> Tensor:
         return self._postprocess(self._embed(indexes))
