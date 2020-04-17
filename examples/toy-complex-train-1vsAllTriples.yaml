@@ -1,0 +1,28 @@
+job.type: train
+dataset.name: toy
+
+
+
+train:
+  type: 1vsAllTriples
+  optimizer: Adagrad
+  optimizer_args:
+    lr: 0.1
+  lr_scheduler: ReduceLROnPlateau
+  lr_scheduler_args:
+    mode: max
+    patience: 4
+  max_epochs: 50
+
+1vsAllTriples:
+  negative_proportion: 0.01
+
+model: complex
+lookup_embedder:
+  dim: 100
+  regularize_weight: 0.8e-7
+  initialize: normal_
+  initialize_args:
+    normal_:
+      mean: 0.0
+      std: 0.1

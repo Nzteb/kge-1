@@ -298,6 +298,9 @@ negative_sampling:
   chunk_size: -1                  # default: no chunking
 
 
+1vsAllTriples:
+  negative_proportion: 0.001
+
 ## VALIDATION AND EVALUATION ###################################################
 
 # Options used for all evaluation jobs (job.type=="eval"). Also used during

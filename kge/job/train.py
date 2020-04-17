@@ -21,6 +21,7 @@ import kge.job.util
 SLOTS = [0, 1, 2]
 S, P, O = SLOTS
 
+
 def _worker_init_fn(worker_num):
     # ensure that NumPy uses different seeds at each worker
     np.random.seed()
@@ -109,6 +110,8 @@ class TrainingJob(Job):
             return TrainingJobNegativeSampling(config, dataset, parent_job)
         elif config.get("train.type") == "1vsAll":
             return TrainingJob1vsAll(config, dataset, parent_job)
+        elif config.get("train.type") == "1vsAllTriples":
+            return TrainingJob1vsAllTriples(config, dataset, parent_job)
         else:
             # perhaps TODO: try class with specified name -> extensibility
             raise ValueError("train.type")
@@ -1070,6 +1073,105 @@ class TrainingJob1vsAll(TrainingJob):
         backward_time -= time.time()
         loss_value_po.backward()
         backward_time += time.time()
+
+        # all done
+        return TrainingJob._ProcessBatchResult(
+            loss_value, batch_size, prepare_time, forward_time, backward_time
+        )
+
+
+class TrainingJob1vsAllTriples(TrainingJob):
+    """For batch of triples, define a subset of all possible triples as negatives ."""
+
+    def __init__(self, config, dataset, parent_job=None):
+        super().__init__(config, dataset, parent_job)
+        self.is_prepared = False
+        config.log("Initializing spo training job...")
+        self.type_str = "1vsAllTriples"
+        self.neg_proportion = self.config.get("1vsAllTriples.negative_proportion")
+        self.num_negatives = int(
+            self.neg_proportion
+            * 2
+            * self.dataset.num_entities()
+            * self.dataset.num_relations()
+        )
+
+        if self.__class__ == TrainingJob1vsAllTriples:
+            for f in Job.job_created_hooks:
+                f(self)
+
+    def _prepare(self):
+        """Construct dataloader"""
+
+        if self.is_prepared:
+            return
+
+        self.num_examples = self.dataset.split(self.train_split).size(0)
+        self.loader = torch.utils.data.DataLoader(
+            range(self.num_examples),
+            collate_fn=self._get_collate_fun(),
+            shuffle=True,
+            batch_size=self.batch_size,
+            num_workers=self.config.get("train.num_workers"),
+            worker_init_fn=_worker_init_fn,
+            pin_memory=self.config.get("train.pin_memory"),
+        )
+
+        self.is_prepared = True
+
+    def _get_collate_fun(self):
+        # create the collate function
+        def collate(batch):
+            triples = self.dataset.split(self.train_split)[batch, :].long()
+
+            s_negatives = torch.randint(
+                0, self.dataset.num_entities(), (self.num_negatives, 1)
+            )
+            o_negatives = torch.randint(
+                0, self.dataset.num_entities(), (self.num_negatives, 1)
+            )
+            p_negatives = torch.randint(
+                0, self.dataset.num_relations(), (self.num_negatives, 1)
+            )
+            return {
+                "triples": triples,
+                "negative_triples": torch.cat(
+                    (s_negatives, p_negatives, o_negatives),
+                    dim=1
+                )
+            }
+
+        return collate
+
+    def _process_batch(self, batch_index, batch) -> TrainingJob._ProcessBatchResult:
+        # prepare
+        prepare_time = -time.time()
+        positive_triples = batch["triples"].to(self.device)
+        negative_triples = batch["negative_triples"].to(self.device)
+        batch_size = len(positive_triples)
+        prepare_time += time.time()
+
+        # forward
+        forward_time = -time.time()
+        negative_scores = self.model.score_spo(
+            negative_triples[:, 0], negative_triples[:, 1], negative_triples[:, 2]
+        )
+        positive_scores = self.model.score_spo(
+            positive_triples[:, 0], positive_triples[:, 1], positive_triples[:, 2]
+        )
+
+        # the gradient of the normalization only has to be calculated once
+        # e.g. this assumes kl/ce loss
+        scores = positive_scores.sum()
+        norm = self.batch_size * torch.logsumexp(negative_scores, dim=0)
+        loss = (-1 * scores + norm) / self.batch_size
+        forward_time += time.time()
+
+        # backward
+        backward_time = -time.time()
+        loss.backward()
+        backward_time += time.time()
+        loss_value = loss.item()
 
         # all done
         return TrainingJob._ProcessBatchResult(
