@@ -1,5 +1,4 @@
 job.type: train
-dataset.name: toy
 
 train:
   optimizer: Adagrad

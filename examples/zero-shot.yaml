@@ -1,0 +1,31 @@
+
+
+dataset.name: toy-zero-shot-head-10
+job.type: zero_shot
+zero_shot:
+  type: fold_in
+  obtain_seen_model: load
+  seen_checkpoint: local/experiments/seen_model/checkpoint_best.pt
+
+valid.every: 3
+train.max_epochs: 5
+
+
+model: complex
+lookup_embedder:
+  dim: 100
+  regularize_weight: 0.8e-7
+  initialize: normal_
+  initialize_args:
+    normal_:
+      mean: 0.0
+      std: 0.1
+
+train:
+  optimizer: Adagrad
+  optimizer_args:
+    lr: 0.2
+  lr_scheduler: ReduceLROnPlateau
+  lr_scheduler_args:
+    mode: max
+    patience: 4

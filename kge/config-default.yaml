@@ -492,6 +492,18 @@ ax_search:
   parameters: []
   parameter_constraints: []
 
+zero_shot:
+  type: fold_in
+  # How to obtain the model for the seen entities
+  # Possible values:
+  # - train: train from scratch
+  # - load: load model trained on seen entities
+  obtain_seen_model: train
+  # if obtain_seen_model is load, the path to the checkpoint of the pretrained model
+  # the pretrained model must be trained on the training split of the seen entities
+  # (e.g. using a seen_entity_ids.del file as entity_ids file)
+  seen_checkpoint: ""
+
 
 ## USER PARAMETERS #####################################################################
 
