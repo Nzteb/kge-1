@@ -1,5 +1,8 @@
 job.type: search
-dataset.name: toy
+dataset.name: toy-zero-shot-head-20
+eval.filter_with_test: false
+valid.metric: mean_reciprocal_rank_filtered
+
 train.optimizer: Adagrad
 model: complex
 
@@ -17,3 +20,4 @@ ax_search:
     - name: lookup_embedder.dim
       type: range
       bounds: [10, 50]
+search.num_workers: 1

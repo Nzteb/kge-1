@@ -16,6 +16,15 @@ class ZeroShotProtocolJob(Job):
         super().__init__(config, dataset, parent_job)
 
         self.config = config
+        # ensure that the dataset of this job corresponds to seen and unseen entities
+        # as this job is the meta job over the whole dataset
+        # dataset.create overwrites the config with values from dataset.yaml
+        # e.g. entity_ids corresponds to only one file, however, the dataset has
+        # two different entity_ids files, one corresponding to only the seen
+        # entities and one corresponding to all entities
+        dataset = dataset.create(self.config, preload_data=False)
+        self.config.set("dataset.files.entity_ids.filename", "all_entity_ids.del")
+        dataset.config = self.config
         self.dataset = dataset
         self.config.check("zero_shot.obtain_seen_model", ["load", "train"])
         self.obtain_seen_model = self.config.get("zero_shot.obtain_seen_model")
@@ -55,19 +64,15 @@ class ZeroShotProtocolJob(Job):
 
         elif self.obtain_seen_model == "train":
             seen_config = self.config.clone()
-            # set entity_ids to the seen entities
-            seen_config.set(
-                "dataset.files.entity_ids.filename",
-                "seen_entity_ids.del"
-            )
             # zero-shot test dataset contains unseen entities; cannot be used
             # during training on the seen entities
+            seen_dataset = Dataset.create(seen_config, preload_data=False)
             seen_config.set("eval.filter_with_test", False)
             seen_config.folder = path.join(self.config.folder, "seen_model")
-
             seen_config.set("job.type", "train")
+            seen_config.set("dataset.files.entity_ids.filename", "seen_entity_ids.del")
             seen_config.init_folder()
-            seen_dataset = Dataset.create(seen_config)
+            seen_dataset.config = seen_config
             job = TrainingJob.create(config=seen_config, dataset=seen_dataset)
             job.run()
         return job.model
@@ -77,6 +82,9 @@ class ZeroShotProtocolJob(Job):
 
          :param seen_model: a KgeModel which is trained on the seen entities, e.g., the
                             embedder has a vocabulary size of num. seen entities.
+
+         :returns a KgeModel which must be capable of scoring triples based on the whole
+                  vocabulary (seen + unseen entities).
          """
 
         raise NotImplementedError
@@ -88,6 +96,7 @@ class ZeroShotProtocolJob(Job):
 
         """
         self.config.set("eval.split", "test")
+        self.config.set("dataset.files.entity_ids.filename", "all_entity_ids")
         eval_job = EvaluationJob.create(
             config=self.config,
             dataset=self.dataset,
@@ -153,23 +162,33 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
         if not (seen_model.get_o_embedder() == seen_model.get_s_embedder()):
             raise Exception("Using distinct subject and object embedder not permitted")
         embedder = seen_model.get_o_embedder()
+        num_seen = seen_model.dataset.num_entities()
+        num_all = len(self.dataset.map_indexes(indexes=None, key="all_entity_ids"))
+        num_unseen = num_all - num_seen
 
-        old_vocab_size = seen_model.dataset.num_entities()
-
-        num_unseen = self.dataset.num_entities() - old_vocab_size
         # add the new set of entities to the model
         embedder.add_embeddings(num_unseen)
         # freeze the seen embeddings
         embedder._embeddings.weight.requires_grad = False
-        # assign the full dataset to the seen_model
-        seen_model.dataset = self.dataset
         # there is no validation set in this setting
         # accordingly, use the hyperparameters of the seen model as
         # this is the best guess
-        self.config.set("valid.every", 0)
-        self.config.set("train.split", "aux")
+        seen_config = seen_model.config
+        seen_model.dataset = self.dataset
+        aux_config = seen_config.clone()
+        aux_config.folder = self.config.folder
+        aux_config.log_folder = self.config.folder
+        aux_config.set("valid.every", 0)
+        aux_config.set("train.split", "aux")
+        aux_config.set(
+            "dataset.files.entity_ids.filename",
+            self.config.get("dataset.files.entity_ids.filename")
+        )
+        aux_config.log(
+            "Training on auxiliary set while holding seen embeddings constant."
+        )
         job = TrainingJob.create(
-            config=self.config, dataset=self.dataset, model=seen_model
+            config=aux_config, dataset=self.dataset, model=seen_model, parent_job=self
         )
         job.run()
         return job.model

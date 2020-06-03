@@ -1,4 +1,7 @@
 job.type: train
+dataset.name: toy-zero-shot-head-10
+eval.filter_with_test: false
+valid.metric: mean_reciprocal_rank_filtered
 
 train:
   optimizer: Adagrad
