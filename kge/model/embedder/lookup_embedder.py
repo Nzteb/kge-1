@@ -130,9 +130,14 @@ class LookupEmbedder(KgeEmbedder):
         def embed(indexes: Tensor) -> Tensor:
             mask_lower = indexes < old_vocab_size
             mask_upper = indexes >= old_vocab_size
-            lower_embeddings = self._embeddings(indexes[mask_lower].long())
+            lower_embeddings = self._embeddings(
+                indexes[mask_lower].long(device=self._embeddings.weight.device)
+            )
             upper_embeddings = self._embeddings_new(
-                (indexes[mask_upper]-old_vocab_size).long()
+                (indexes[mask_upper]-old_vocab_size).long(
+                    device=self._embeddings_new.weight.device
+
+                )
             )
             return self._postprocess(torch.cat((lower_embeddings, upper_embeddings)))
 
