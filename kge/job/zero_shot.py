@@ -184,14 +184,13 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
             "dataset.files.entity_ids.filename",
             self.config.get("dataset.files.entity_ids.filename")
         )
+        aux_config.set("job.device", self.config.get("job.device"))
         aux_config.log(
             "Training on auxiliary set while holding seen embeddings constant."
         )
         job = TrainingJob.create(
             config=aux_config, dataset=self.dataset, model=seen_model, parent_job=self
         )
-        print(job.device)
-        print(aux_config.get("job.device"))
         job.run()
         return job.model
 
