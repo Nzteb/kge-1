@@ -85,10 +85,6 @@ class LookupEmbedder(KgeEmbedder):
         self._embeddings.weight[
             torch.from_numpy(self_intersect_ind)
             .to(self._embeddings.weight.device)
-            .long()
-        ] = pretrained_embedder.embed(torch.from_numpy(pretrained_intersect_ind)).to(
-            self._embeddings.weight.device
-
 
     def embed(self, indexes: Tensor) -> Tensor:
         return self._postprocess(self._embed(indexes))
