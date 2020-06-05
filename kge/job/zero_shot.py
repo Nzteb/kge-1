@@ -190,6 +190,8 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
         job = TrainingJob.create(
             config=aux_config, dataset=self.dataset, model=seen_model, parent_job=self
         )
+        print(job.device)
+        print(aux_config.get("job.device"))
         job.run()
         return job.model
 
