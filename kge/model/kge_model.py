@@ -87,9 +87,6 @@ class KgeBase(torch.nn.Module, Configurable):
         self.load_state_dict(state_dict)
         self.meta = savepoint[1]
 
-    def init_pretrained(self, packaged_model: Dict):
-        raise NotImplementedError()
-
 
 class RelationalScorer(KgeBase):
     r"""Base class for all relational scorers.
@@ -227,6 +224,7 @@ class KgeEmbedder(KgeBase):
         self.dim: int = self.get_option("dim")
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     def _init_embeddings(self, data: Tensor):
         """Initialize embeddings with provided configuration."""
         initialize = self.get_option("initialize")
@@ -249,6 +247,8 @@ class KgeEmbedder(KgeBase):
         raise NotImplementedError()
 >>>>>>> improve init_pretrained api
 
+=======
+>>>>>>> refactor init pretrain
     @staticmethod
     def create(
         config: Config,
@@ -394,6 +394,7 @@ class KgeModel(KgeBase):
                 init_for_load_only=init_for_load_only,
             )
 
+<<<<<<< HEAD
             if not init_for_load_only:
                 # load pretrained embeddings
                 pretrained_entities_filename = ""
@@ -444,6 +445,34 @@ class KgeModel(KgeBase):
                     self._relation_embedder.init_pretrained(
                         pretrained_relations_model.get_p_embedder()
                     )
+=======
+            # load pretrained embeddings
+            pretrained_entities_filename = self.get_option(
+                "entity_embedder.pretrain.model_filename"
+            )
+            pretrained_relations_filename = self.get_option(
+                "relation_embedder.pretrain.model_filename"
+            )
+            if pretrained_entities_filename != "":
+                self.config.log(
+                    f"Initializing entities with embeddings stored in "
+                    f"{pretrained_entities_filename}"
+                )
+                packaged_checkpoint = load_checkpoint(pretrained_entities_filename)
+                packaged_model = KgeModel.create_from(packaged_checkpoint)
+                entities_ensure_all = self.get_option("entity_embedder.pretrain.ensure_all")
+                self.init_entities_pretrained(packaged_model, entities_ensure_all)
+            if pretrained_relations_filename != "":
+                self.config.log(
+                    f"Initializing relations with embeddings stored in "
+                    f"{pretrained_relations_filename}"
+                )
+                if pretrained_entities_filename != pretrained_relations_filename:
+                    packaged_checkpoint = load_checkpoint(pretrained_relations_filename)
+                    packaged_model = KgeModel.create_from(packaged_checkpoint)
+                relations_ensure_all = self.get_option("entity_embedder.pretrain.ensure_all")
+                self.init_relations_pretrained(packaged_model, relations_ensure_all)
+>>>>>>> refactor init pretrain
 
         #: Scorer
         self._scorer: RelationalScorer
@@ -582,31 +611,6 @@ class KgeModel(KgeBase):
         model.load(checkpoint["model"])
         model.eval()
         return model
-
-    def init_pretrained(self, packaged_model: Dict):
-        entity_package = {
-            "model": dict(
-                        [
-                            (k.split("_entity_embedder.")[1], v)
-                            for k, v in packaged_model["model"][0].items()
-                            if k.startswith("_entity_embedder")
-                        ]
-                    ),
-            "ids": packaged_model["entity_ids"]
-        }
-
-        relation_package = {
-            "model": dict(
-                        [
-                            (k.split("_relation_embedder.")[1], v)
-                            for k, v in packaged_model["model"][0].items()
-                            if k.startswith("_relation_embedder")
-                        ]
-                    ),
-            "ids": packaged_model["relation_ids"]
-        }
-        self._entity_embedder.init_pretrained(entity_package, self.dataset.entity_ids())
-        self._relation_embedder.init_pretrained(relation_package, self.dataset.relation_ids())
 
     def prepare_job(self, job: "Job", **kwargs):
         super().prepare_job(job, **kwargs)
