@@ -90,7 +90,10 @@ class LookupEmbedder(KgeEmbedder):
         )
 
     def embed(self, indexes: Tensor) -> Tensor:
-        return self._postprocess(self._embeddings(indexes.long()))
+        return self._postprocess(self._embed(indexes))
+
+    def _embed(self, indexes: Tensor) -> Tensor:
+        return self._embeddings(indexes.long())
 
     def embed_all(self) -> Tensor:
         return self._postprocess(self._embeddings_all())
@@ -229,7 +232,7 @@ class LookupEmbedder(KgeEmbedder):
                 unique_indexes, counts = torch.unique(
                     kwargs["indexes"], return_counts=True
                 )
-                parameters = self._embeddings(unique_indexes)
+                parameters = self._embed(unique_indexes)
                 if p % 2 == 1:
                     parameters = torch.abs(parameters)
                 result += [
