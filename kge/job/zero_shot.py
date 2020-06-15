@@ -96,7 +96,9 @@ class ZeroShotProtocolJob(Job):
 
         """
         self.config.set("eval.split", "test")
-        self.config.set("dataset.files.entity_ids.filename", "all_entity_ids")
+        self.config.check("dataset.files.entity_ids.filename", "all_entity_ids")
+        self.config.set("eval.filter_splits", ["aux", "train", "valid"])
+        self.config.set("eval.metrics_per.head_and_tail", True)
         eval_job = EvaluationJob.create(
             config=self.config,
             dataset=self.dataset,
@@ -161,37 +163,6 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
     def auxiliary_phase(self, seen_model):
         if not (seen_model.get_o_embedder() == seen_model.get_s_embedder()):
             raise Exception("Using distinct subject and object embedder not permitted")
-        embedder = seen_model.get_o_embedder()
-        num_seen = seen_model.dataset.num_entities()
-        num_all = len(self.dataset.map_indexes(indexes=None, key="all_entity_ids"))
-        num_unseen = num_all - num_seen
-
-        # add the new set of entities to the model
-        embedder.add_embeddings(num_unseen)
-        # freeze the seen embeddings
-        embedder._embeddings.weight.requires_grad = False
-        # there is no validation set in this setting
-        # accordingly, use the hyperparameters of the seen model as
-        # this is the best guess
-        seen_config = seen_model.config
-        seen_model.dataset = self.dataset
-        aux_config = seen_config.clone()
-        aux_config.folder = self.config.folder
-        aux_config.log_folder = self.config.folder
-        aux_config.set("valid.every", 0)
-        aux_config.set("train.split", "aux")
-        aux_config.set(
-            "dataset.files.entity_ids.filename",
-            self.config.get("dataset.files.entity_ids.filename")
-        )
-        aux_config.set("job.device", self.config.get("job.device"))
-        aux_config.log(
-            "Training on auxiliary set while holding seen embeddings constant."
-        )
-        job = TrainingJob.create(
-            config=aux_config, dataset=self.dataset, model=seen_model, parent_job=self
-        )
-        job.run()
-        return job.model
+        raise NotImplementedError
 
 
