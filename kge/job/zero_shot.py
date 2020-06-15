@@ -28,6 +28,7 @@ class ZeroShotProtocolJob(Job):
         self.dataset = dataset
         self.config.check("zero_shot.obtain_seen_model", ["load", "train"])
         self.obtain_seen_model = self.config.get("zero_shot.obtain_seen_model")
+        self.device = self.config.get("job.device")
 
         # all done, run job_created_hooks if necessary
         if self.__class__ == ZeroShotProtocolJob:
@@ -96,9 +97,9 @@ class ZeroShotProtocolJob(Job):
 
         """
         self.config.set("eval.split", "test")
-        self.config.check("dataset.files.entity_ids.filename", "all_entity_ids")
-        self.config.set("eval.filter_splits", ["aux", "train", "valid"])
-        self.config.set("eval.metrics_per.head_and_tail", True)
+        self.config.check("dataset.files.entity_ids.filename", "all_entity_ids.del")
+        self.config.set("entity_ranking.filter_splits", ["aux", "train", "valid"])
+        self.config.set("entity_ranking.metrics_per.head_and_tail", True)
         eval_job = EvaluationJob.create(
             config=self.config,
             dataset=self.dataset,
@@ -163,6 +164,58 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
     def auxiliary_phase(self, seen_model):
         if not (seen_model.get_o_embedder() == seen_model.get_s_embedder()):
             raise Exception("Using distinct subject and object embedder not permitted")
-        raise NotImplementedError
+        embedder = seen_model.get_o_embedder()
+        num_seen = seen_model.dataset.num_entities()
+        num_all = len(self.dataset.map_indexes(indexes=None, key="all_entity_ids"))
+        num_unseen = num_all - num_seen
+
+        seen_config = seen_model.config
+        seen_model.dataset = self.dataset
+        seen_model.to(self.device)
+        foldin_config = seen_config.clone()
+        foldin_config.folder = self.config.folder
+        foldin_config.log_folder = self.config.folder
+        foldin_config.set("valid.every", 0)
+        foldin_config.set("train.split", "aux")
+        foldin_config.set(
+            "dataset",
+            self.config.get("dataset")
+        )
+        foldin_config.set("job.device", self.config.get("job.device"))
+        foldin_config.log(
+            "Training on auxiliary set while holding seen embeddings constant."
+        )
+        # create a new model with the full dataset
+        foldin_model = KgeModel.create(foldin_config, self.dataset)
+
+        seen_indexes = torch.tensor(
+            [int(i) for i in self.dataset.load_map(key="seen_entity_ids").keys()],
+            device=self.device,
+        )
+
+        unseen_indexes = torch.tensor(
+            torch.tensor([int(i) for i in self.dataset.load_map(key="unseen_entity_ids").keys()]),
+            device=self.device,
+        )
+
+        foldin_model.get_o_embedder()._embeddings.weight.data[seen_indexes] = (
+            seen_model.get_o_embedder()._embeddings.weight.data
+        )
+
+        foldin_model.get_p_embedder()._embeddings.weight.data = (
+            seen_model.get_p_embedder()._embeddings.weight.data
+        )
+
+        foldin_config.set("train.max_epochs", 10)
+
+        # freeze embeddings of the seen entities
+        foldin_model.get_o_embedder().freeze(seen_indexes)
+        foldin_model.get_p_embedder().freeze(torch.arange(self.dataset.num_relations()))
+
+        job = TrainingJob.create(
+            config=foldin_config, dataset=self.dataset, model=foldin_model, parent_job=self
+        )
+        job.run()
+        return job.model
 
 
