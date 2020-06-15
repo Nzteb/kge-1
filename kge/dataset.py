@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import os
 import sys
+import uuid
 
 import torch
 from torch import Tensor
@@ -84,7 +85,7 @@ class Dataset(Configurable):
             raise IOError("File {} for key {} could not be found".format(os.path.join(self.folder, filename), key))
 
     @staticmethod
-    def create(config: Config, preload_data=True):
+    def create(config: Config, preload_data: bool = True, folder: Optional[str] = None):
         """Loads a dataset.
 
         If preload_data is set, loads entity and relation maps as well as all splits.
@@ -92,7 +93,8 @@ class Dataset(Configurable):
 
         """
         name = config.get("dataset.name")
-        folder = os.path.join(kge_base_dir(), "data", name)
+        if folder is None:
+            folder = os.path.join(kge_base_dir(), "data", name)
         if os.path.isfile(os.path.join(folder, "dataset.yaml")):
             config.log("Loading configuration of dataset " + name + "...")
             config.load(os.path.join(folder, "dataset.yaml"))
@@ -153,7 +155,7 @@ class Dataset(Configurable):
         meta_checkpoint = {}
         for key in meta_keys:
             meta_checkpoint[key] = self.map_indexes(None, key)
-        checkpoint["dataset"]["meta"] = dataset_checkpoint
+        checkpoint["dataset"]["meta"] = meta_checkpoint
         return checkpoint
 
     @staticmethod
@@ -173,7 +175,7 @@ class Dataset(Configurable):
             if triples is not None:
                 return triples
 
-        triples = np.loadtxt(filename, usecols=range(0, 3), dtype=int)
+        triples = np.loadtxt(filename, usecols=range(0, 3), dtype=np.int32)
         triples = torch.from_numpy(triples)
         if use_pickle:
             Dataset._pickle_dump_atomic(triples, pickle_filename)
@@ -404,7 +406,7 @@ NOT RECOMMENDED: You can update the timestamp of all cached files using:
     @staticmethod
     def _pickle_dump_atomic(data, pickle_filename):
         # first write to temporary file
-        tmpfile = pickle_filename + ".tmp"
+        tmpfile = pickle_filename + str(uuid.uuid4()) + ".tmp"
         with open(tmpfile, "wb") as f:
             pickle.dump(data, f)
 
