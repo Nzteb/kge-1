@@ -113,6 +113,10 @@ class LookupEmbedder(KgeEmbedder):
     def _get_regularize_weight(self) -> Tensor:
         return self.get_option("regularize_weight")
 
+    def freeze_all(self):
+        """Freeze all embeddings."""
+        self._embeddings.weight.requires_grad = False
+
     def freeze(self, freeze_indexes: Tensor):
         """Freeze the embeddings of the entities specified by freeze_indexes. """
 
