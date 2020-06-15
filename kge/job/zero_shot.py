@@ -182,9 +182,6 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
             self.config.get("dataset")
         )
         foldin_config.set("job.device", self.config.get("job.device"))
-        foldin_config.log(
-            "Training on auxiliary set while holding seen embeddings constant."
-        )
         # create a new model with the full dataset
         foldin_model = KgeModel.create(foldin_config, self.dataset)
 
@@ -193,29 +190,32 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
             device=self.device,
         )
 
-        unseen_indexes = torch.tensor(
-            torch.tensor([int(i) for i in self.dataset.load_map(key="unseen_entity_ids").keys()]),
-            device=self.device,
-        )
-
         foldin_model.get_o_embedder()._embeddings.weight.data[seen_indexes] = (
-            seen_model.get_o_embedder()._embeddings.weight.data
+           seen_model.get_o_embedder()._embeddings.weight.data
         )
 
         foldin_model.get_p_embedder()._embeddings.weight.data = (
-            seen_model.get_p_embedder()._embeddings.weight.data
+           seen_model.get_p_embedder()._embeddings.weight.data
         )
-
-        foldin_config.set("train.max_epochs", 10)
 
         # freeze embeddings of the seen entities
         foldin_model.get_o_embedder().freeze(seen_indexes)
-        foldin_model.get_p_embedder().freeze(torch.arange(self.dataset.num_relations()))
+
+        # freeze relation embeddings
+        foldin_model.get_p_embedder().freeze_all()
+
+        foldin_config.log(
+            "Training on auxiliary set while holding seen embeddings constant."
+        )
 
         job = TrainingJob.create(
-            config=foldin_config, dataset=self.dataset, model=foldin_model, parent_job=self
+            config=foldin_config,
+            dataset=self.dataset,
+            model=foldin_model,
+            parent_job=self
         )
         job.run()
+
         return job.model
 
 
