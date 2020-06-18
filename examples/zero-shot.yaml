@@ -3,7 +3,10 @@ job.type: zero_shot
 zero_shot:
   type: fold_in
   obtain_seen_model: load
+  # remote
   seen_checkpoint: local/zero-shot-experiments/zero-shot-subject-10/checkpoint_best.pt
+  # local
+  #seen_checkpoint: local/experiments/checkpoint_best
 
 valid.every: 3
 train.max_epochs: 5

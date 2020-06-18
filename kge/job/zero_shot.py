@@ -10,6 +10,8 @@ from kge.util.io import load_checkpoint
 from typing import Dict, Union, Optional
 from os import path
 
+S,P,O = 0,1,2
+
 
 class ZeroShotProtocolJob(Job):
     def __init__(self, config, dataset, parent_job, model):
@@ -47,9 +49,17 @@ class ZeroShotProtocolJob(Job):
 
     def run(self) -> dict:
         """Run zero-shot protocol."""
-        seen_model = self.training_phase()
-        full_model = self.auxiliary_phase(seen_model)
-        self.evaluation_phase(full_model)
+        #TODO add to config
+        incremental = False
+        if not incremental:
+            seen_model = self.training_phase()
+            full_model = self.auxiliary_phase(seen_model)
+            self.evaluation_phase(full_model)
+        else:
+            seen_model = self.training_phase()
+            self.incremental_zero_shot_evaluation_phase(seen_model)
+
+
 
     def training_phase(self):
         """Train a model on the seen entities or load a pre-trained model."""
@@ -106,6 +116,33 @@ class ZeroShotProtocolJob(Job):
             model=full_model
         )
         eval_job.run()
+
+    def incremental_zero_shot_evaluation_phase(self, seen_model):
+        unseen_entities = list(self.dataset.load_map("unseen_entity_ids").keys())
+
+        #TODO make unseen slot configurable
+        unseen_slot = S
+
+        for unseen in unseen_entities:
+            aux = self.dataset.split("aux")
+            # aux facts can have the unseen entity in the tail or head
+            us_in_head = aux[aux[:, 0] == int(unseen)]
+            us_in_tail = aux[aux[:, 1] == int(unseen)]
+
+            # the test fact have a fixed slot where the unseen entity can appear
+            test = self.dataset.split("test")
+            test_facts = test[test[:, unseen_slot] == int(unseen)]
+
+
+
+            print("debug")
+
+
+
+
+
+        print("debug")
+
 
     # TODO load/resume
     # def _load(self, checkpoint: Dict):
@@ -207,6 +244,8 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
         foldin_config.log(
             "Training on auxiliary set while holding seen embeddings constant."
         )
+
+        foldin_config.set("train.max_epochs", 10)
 
         job = TrainingJob.create(
             config=foldin_config,
