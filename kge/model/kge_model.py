@@ -225,6 +225,7 @@ class KgeEmbedder(KgeBase):
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     def _init_embeddings(self, data: Tensor):
         """Initialize embeddings with provided configuration."""
         initialize = self.get_option("initialize")
@@ -234,11 +235,23 @@ class KgeEmbedder(KgeBase):
             initialize_args = self.get_option(initialize_args_key)
         except KeyError:
             initialize_args_key = "initialize_args"
+=======
+    def _init_embeddings(self, data: Tensor):
+        """Initialize embeddings with provided configuration."""
+        initialize = self.get_option("initialize")
+        initialize_args_key = "initialize_args"
+
+        try:
+            initialize_args = self.get_option(
+                initialize_args_key + "." + initialize)
+        except KeyError:
+>>>>>>> Factor out embedding initialization for use in KgeEmbedder subclasses
             initialize_args = self.get_option(initialize_args_key)
 
         # Automatically set arg a (lower bound) for uniform_ if not given
         if initialize == "uniform_" and "a" not in initialize_args:
             initialize_args["a"] = initialize_args["b"] * -1
+<<<<<<< HEAD
             self.set_option(initialize_args_key + ".a", initialize_args["a"], log=True)
 
         self.initialize(data, initialize, initialize_args)
@@ -249,6 +262,12 @@ class KgeEmbedder(KgeBase):
 
 =======
 >>>>>>> refactor init pretrain
+=======
+            self.set_option(initialize_args_key, initialize_args["a"], log=True)
+
+        self.initialize(data, initialize, initialize_args)
+
+>>>>>>> Factor out embedding initialization for use in KgeEmbedder subclasses
     @staticmethod
     def create(
         config: Config,
@@ -394,7 +413,6 @@ class KgeModel(KgeBase):
                 init_for_load_only=init_for_load_only,
             )
 
-<<<<<<< HEAD
             if not init_for_load_only:
                 # load pretrained embeddings
                 pretrained_entities_filename = ""
@@ -445,34 +463,6 @@ class KgeModel(KgeBase):
                     self._relation_embedder.init_pretrained(
                         pretrained_relations_model.get_p_embedder()
                     )
-=======
-            # load pretrained embeddings
-            pretrained_entities_filename = self.get_option(
-                "entity_embedder.pretrain.model_filename"
-            )
-            pretrained_relations_filename = self.get_option(
-                "relation_embedder.pretrain.model_filename"
-            )
-            if pretrained_entities_filename != "":
-                self.config.log(
-                    f"Initializing entities with embeddings stored in "
-                    f"{pretrained_entities_filename}"
-                )
-                packaged_checkpoint = load_checkpoint(pretrained_entities_filename)
-                packaged_model = KgeModel.create_from(packaged_checkpoint)
-                entities_ensure_all = self.get_option("entity_embedder.pretrain.ensure_all")
-                self.init_entities_pretrained(packaged_model, entities_ensure_all)
-            if pretrained_relations_filename != "":
-                self.config.log(
-                    f"Initializing relations with embeddings stored in "
-                    f"{pretrained_relations_filename}"
-                )
-                if pretrained_entities_filename != pretrained_relations_filename:
-                    packaged_checkpoint = load_checkpoint(pretrained_relations_filename)
-                    packaged_model = KgeModel.create_from(packaged_checkpoint)
-                relations_ensure_all = self.get_option("entity_embedder.pretrain.ensure_all")
-                self.init_relations_pretrained(packaged_model, relations_ensure_all)
->>>>>>> refactor init pretrain
 
         #: Scorer
         self._scorer: RelationalScorer
