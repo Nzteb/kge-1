@@ -223,9 +223,7 @@ class KgeEmbedder(KgeBase):
 
         self.dim: int = self.get_option("dim")
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
+
     def _init_embeddings(self, data: Tensor):
         """Initialize embeddings with provided configuration."""
         initialize = self.get_option("initialize")
@@ -235,39 +233,25 @@ class KgeEmbedder(KgeBase):
             initialize_args = self.get_option(initialize_args_key)
         except KeyError:
             initialize_args_key = "initialize_args"
-=======
+
     def _init_embeddings(self, data: Tensor):
         """Initialize embeddings with provided configuration."""
         initialize = self.get_option("initialize")
-        initialize_args_key = "initialize_args"
 
         try:
-            initialize_args = self.get_option(
-                initialize_args_key + "." + initialize)
+            initialize_args_key = "initialize_args." + initialize
+            initialize_args = self.get_option(initialize_args_key)
         except KeyError:
->>>>>>> Factor out embedding initialization for use in KgeEmbedder subclasses
+            initialize_args_key = "initialize_args"
             initialize_args = self.get_option(initialize_args_key)
 
         # Automatically set arg a (lower bound) for uniform_ if not given
         if initialize == "uniform_" and "a" not in initialize_args:
             initialize_args["a"] = initialize_args["b"] * -1
-<<<<<<< HEAD
             self.set_option(initialize_args_key + ".a", initialize_args["a"], log=True)
 
         self.initialize(data, initialize, initialize_args)
-=======
-    def init_pretrained(self, packaged_model: Dict, dataset_ids: List):
-        raise NotImplementedError()
->>>>>>> improve init_pretrained api
 
-=======
->>>>>>> refactor init pretrain
-=======
-            self.set_option(initialize_args_key, initialize_args["a"], log=True)
-
-        self.initialize(data, initialize, initialize_args)
-
->>>>>>> Factor out embedding initialization for use in KgeEmbedder subclasses
     @staticmethod
     def create(
         config: Config,

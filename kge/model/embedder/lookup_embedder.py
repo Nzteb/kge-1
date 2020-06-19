@@ -1,7 +1,6 @@
 from torch import Tensor
 import torch.nn
 import torch.nn.functional
-import numpy as np
 
 from kge import Config, Dataset
 from kge.job import Job
@@ -47,6 +46,21 @@ class LookupEmbedder(KgeEmbedder):
 
         self._embeddings_freeze = None
 
+        if not init_for_load_only:
+            # initialize weights
+            init_ = self.get_option("initialize")
+            try:
+                init_args = self.get_option("initialize_args." + init_)
+            except KeyError:
+                init_args = self.get_option("initialize_args")
+
+            # Automatically set arg a (lower bound) for uniform_ if not given
+            if init_ == "uniform_" and "a" not in init_args:
+                init_args["a"] = init_args["b"] * -1
+                self.set_option("initialize_args.a", init_args["a"], log=True)
+
+            self.initialize(self._embeddings.weight.data, init_, init_args)
+
         # TODO handling negative dropout because using it with ax searches for now
         dropout = self.get_option("dropout")
         if dropout < 0:
@@ -86,6 +100,10 @@ class LookupEmbedder(KgeEmbedder):
         self._embeddings.weight[
             torch.from_numpy(self_intersect_ind)
             .to(self._embeddings.weight.device)
+            .long()
+        ] = pretrained_embedder.embed(torch.from_numpy(pretrained_intersect_ind)).to(
+            self._embeddings.weight.device
+        )
 
     def embed(self, indexes: Tensor) -> Tensor:
         return self._postprocess(self._embed(indexes))
