@@ -1,12 +1,12 @@
 dataset.name: zero-shot-head-10
 job.type: zero_shot
 zero_shot:
-  type: fold_in
+  type: closed_form
   obtain_seen_model: load
   # remote
-  seen_checkpoint: local/zero-shot-experiments/zero-shot-subject-10/checkpoint_best.pt
+  #seen_checkpoint: local/zero-shot-experiments/zero-shot-subject-10/checkpoint_best.pt
   # local
-  #seen_checkpoint: local/experiments/checkpoint_best
+  seen_checkpoint: local/experiments/checkpoint_best_distmult.pt
 
 valid.every: 3
 train.max_epochs: 5

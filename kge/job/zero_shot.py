@@ -9,6 +9,8 @@ from kge.util.io import load_checkpoint
 
 from typing import Dict, Union, Optional
 from os import path
+import numpy as np
+from numpy.linalg import inv
 
 S,P,O = 0,1,2
 
@@ -44,6 +46,8 @@ class ZeroShotProtocolJob(Job):
         # create the job
         if config.get("zero_shot.type") == "fold_in":
             return ZeroShotFoldInJob(config, dataset, parent_job=parent_job, model=model)
+        elif config.get("zero_shot.type") == "closed_form":
+            return ZeroShotClosedFormJob(config, dataset, parent_job=parent_job, model=model)
         else:
             raise ValueError("zero_shot.type")
 
@@ -58,7 +62,6 @@ class ZeroShotProtocolJob(Job):
         else:
             seen_model = self.training_phase()
             self.incremental_zero_shot_evaluation_phase(seen_model)
-
 
 
     def training_phase(self):
@@ -118,6 +121,11 @@ class ZeroShotProtocolJob(Job):
         eval_job.run()
 
     def incremental_zero_shot_evaluation_phase(self, seen_model):
+        """In incremantal evaluation protocol.
+
+        Combines incremental auxiliary phase and incremental evaluation phase.
+
+        """
         unseen_entities = list(self.dataset.load_map("unseen_entity_ids").keys())
 
         #TODO make unseen slot configurable
@@ -132,17 +140,6 @@ class ZeroShotProtocolJob(Job):
             # the test fact have a fixed slot where the unseen entity can appear
             test = self.dataset.split("test")
             test_facts = test[test[:, unseen_slot] == int(unseen)]
-
-
-
-            print("debug")
-
-
-
-
-
-        print("debug")
-
 
     # TODO load/resume
     # def _load(self, checkpoint: Dict):
@@ -257,4 +254,102 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
 
         return job.model
 
+
+class ZeroShotClosedFormJob(ZeroShotProtocolJob):
+    """Obtain zero-shot embeddings in closed-form."""
+
+    def __init__(self, config, dataset, parent_job, model):
+        super().__init__(config, dataset, parent_job, model)
+        if self.__class__ == ZeroShotFoldInJob:
+            for f in Job.job_created_hooks:
+                f(self)
+
+    def auxiliary_phase(self, seen_model):
+        if not (seen_model.get_o_embedder() == seen_model.get_s_embedder()):
+            raise Exception("Using distinct subject and object embedder not permitted")
+
+        # TODO what has to be done... do everything iteratively first
+
+
+        unseen_entities = list(self.dataset.load_map("unseen_entity_ids").keys())
+
+        seen_indexes = torch.tensor(
+            [int(i) for i in self.dataset.load_map(key="seen_entity_ids").keys()],
+            device=self.device,
+        )
+
+        # TODO config stuff is not used
+        seen_config = seen_model.config
+        foldin_config = seen_config.clone()
+        foldin_config.folder = self.config.folder
+        foldin_config.log_folder = self.config.folder
+        foldin_config.set("valid.every", 0)
+        foldin_config.set("train.split", "aux")
+        foldin_config.set(
+            "dataset",
+            self.config.get("dataset")
+        )
+
+
+
+        foldin_config.set("job.device", self.config.get("job.device"))
+        # create a new model with the full dataset
+        # TODO rename; its not fold-in
+        foldin_model = KgeModel.create(foldin_config, self.dataset)
+
+        foldin_model.get_o_embedder()._embeddings.weight.data[seen_indexes] = (
+            seen_model.get_o_embedder()._embeddings.weight.data
+        )
+
+        foldin_model.get_p_embedder()._embeddings.weight.data = (
+            seen_model.get_p_embedder()._embeddings.weight.data
+        )
+
+        #TODO with torch no grad
+
+        for unseen in unseen_entities:
+            aux = self.dataset.split("aux")
+            # collect all facts for this entity
+            us_in_head = aux[aux[:, 0] == int(unseen)]
+            us_in_tail = aux[aux[:, 1] == int(unseen)]
+
+
+            relations_head = us_in_head[:, 1]
+            relations_head = seen_model.get_p_embedder().embed(relations_head)
+
+            # this are objects, i.e., where unseen is in head
+            entitities_head = us_in_head[:,2]
+            entitities_head = seen_model.get_o_embedder().embed(entitities_head)
+
+            prod = (entitities_head * relations_head).detach().numpy()
+
+            sum_outer_head = np.dot(prod.transpose(), prod)
+
+            relations_tail = us_in_tail[:, 1]
+            relations_tail = seen_model.get_p_embedder().embed(relations_tail)
+
+            # this are subjects, i.e., where unseen is in tail
+            entitities_tail = us_in_tail[:, 0]
+            entitities_tail = seen_model.get_s_embedder().embed(entitities_tail)
+
+            prod = (entitities_tail * relations_tail).detach().numpy()
+
+            sum_outer_tail = np.dot(prod.transpose(), prod)
+
+
+            A = -0.5*(sum_outer_head + sum_outer_tail + np.eye(sum_outer_head.shape[0], sum_outer_head.shape[1]))
+
+
+            b_head = (entitities_head * relations_head).sum(dim=0)
+            b_tail = (entitities_tail * relations_tail).sum(dim=0)
+
+            b = b_head + b_tail
+
+            mu = np.dot(-2 * b.detach().numpy(),  inv(A))
+
+            foldin_model.get_o_embedder()._embeddings.weight.data[int(unseen)] = torch.tensor(mu)
+
+            print(f"Obtained embedding for {unseen}")
+
+        return foldin_model
 
