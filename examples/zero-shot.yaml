@@ -4,7 +4,7 @@ zero_shot:
   type: closed_form
   obtain_seen_model: load
   # remote
-  #seen_checkpoint: local/zero-shot-experiments/zero-shot-subject-10/checkpoint_best.pt
+  #seen_checkpoint: local/zero-shot-experiments/zero-shot-subject-10/checkpoint_best_distmult.pt
   # local
   seen_checkpoint: local/experiments/checkpoint_best_distmult.pt
 

@@ -158,7 +158,7 @@ class LookupEmbedder(KgeEmbedder):
             device=self._embeddings.weight.device
         )
 
-        def embed(indexes: Tensor) -> Tensor:
+        def _embed(indexes: Tensor) -> Tensor:
 
             emb = torch.empty(
                 (len(indexes), self.dim), device=self._embeddings.weight.device
@@ -200,7 +200,7 @@ class LookupEmbedder(KgeEmbedder):
             return emb
 
         self._embeddings_all = _embeddings_all
-        self.embed = embed
+        self._embed = _embed
 
     def penalty(self, **kwargs) -> List[Tensor]:
         # TODO factor out to a utility method

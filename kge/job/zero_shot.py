@@ -6,6 +6,7 @@ from kge.model import KgeModel
 from kge.job import TrainingJob, EvaluationJob
 from kge.misc import kge_base_dir
 from kge.util.io import load_checkpoint
+from kge.indexing import where_in
 
 from typing import Dict, Union, Optional
 from os import path
@@ -61,7 +62,8 @@ class ZeroShotProtocolJob(Job):
             self.evaluation_phase(full_model)
         else:
             seen_model = self.training_phase()
-            self.incremental_zero_shot_evaluation_phase(seen_model)
+            full_model = self.auxiliary_phase(seen_model)
+            self.incremental_zero_shot_evaluation_phase(full_model)
 
 
     def training_phase(self):
@@ -120,26 +122,116 @@ class ZeroShotProtocolJob(Job):
         )
         eval_job.run()
 
-    def incremental_zero_shot_evaluation_phase(self, seen_model):
-        """In incremantal evaluation protocol.
+    def incremental_zero_shot_evaluation_phase(self, full_model):
+        """An incremental evaluation protocol.
 
-        Combines incremental auxiliary phase and incremental evaluation phase.
+        For every test fact (s,p,o), when s is unseen rank against
+        (?,p,o) where ? is all seen entities + s, and rank against (s,p,?) where
+        ? is all seen entities + s.
 
         """
-        unseen_entities = list(self.dataset.load_map("unseen_entity_ids").keys())
+
+        unseen_entities = [int(idx) for idx in self.dataset.load_map("unseen_entity_ids").keys()]
+        seen_entities = [int(idx) for idx in
+                           self.dataset.load_map("seen_entity_ids").keys()]
+
+        unseen_entities = np.array(unseen_entities)
+        seen_entities = np.array(seen_entities)
+
 
         #TODO make unseen slot configurable
         unseen_slot = S
 
-        for unseen in unseen_entities:
-            aux = self.dataset.split("aux")
-            # aux facts can have the unseen entity in the tail or head
-            us_in_head = aux[aux[:, 0] == int(unseen)]
-            us_in_tail = aux[aux[:, 1] == int(unseen)]
+        full_model.eval()
 
-            # the test fact have a fixed slot where the unseen entity can appear
-            test = self.dataset.split("test")
-            test_facts = test[test[:, unseen_slot] == int(unseen)]
+        aux = self.dataset.split("aux")
+
+        all_ranks_head = []
+        all_ranks_tail = []
+        count = 0
+
+        for unseen in unseen_entities:
+            count += 1
+            print(count)
+
+            aux_facts_head = aux[aux[:, 0] == unseen]
+            aux_facts_tail = aux[aux[:, 1] == unseen]
+            # the test facts have a fixed slot where the unseen entity can appear
+            test = self.dataset.split("test").to(self.config.get("job.device"))
+            test_facts = test[test[:, unseen_slot] == unseen]
+
+
+            for test_fact in test_facts:
+                sp = test_fact[:2]
+                po = test_fact[1:]
+                tails = seen_entities.copy()
+                heads = seen_entities.copy()
+                for existing_heads in [
+                    self.dataset.index("train_po_to_s")[po[0].item(), po[1].item()],
+                    self.dataset.index("valid_po_to_s")[po[0].item(), po[1].item()],
+                    self.dataset.index("aux_po_to_s")[po[0].item(), po[1].item()],
+                    self.dataset.index("test_po_to_s")[po[0].item(), po[1].item()],
+                ]:
+                    if len(existing_heads):
+                        heads = heads[where_in(heads, np.array(existing_heads), not_in=True)]
+
+                # filter out all existing triples
+                for existing_tails in [
+                    self.dataset.index("train_sp_to_o")[sp[0].item(), sp[1].item()],
+                    self.dataset.index("valid_sp_to_o")[sp[0].item(), sp[1].item()],
+                    self.dataset.index("aux_sp_to_o")[sp[0].item(), sp[1].item()],
+                    self.dataset.index("test_sp_to_o")[sp[0].item(), sp[1].item()],
+                ]:
+                    if len(existing_tails):
+                        tails = tails[where_in(tails, np.array(existing_tails), not_in=True)]
+
+                true_score_tail = full_model.score_spo(
+                    test_fact[0].view(1),
+                    test_fact[1].view(1),
+                    test_fact[2].view(1),
+                    direction="o"
+                )
+                # score all tails
+                tails_triples = torch.zeros(len(tails), 3).to(self.config.get("job.device"))
+                tails_triples[:, : 2] = sp
+                tails_triples[:, 2] = torch.tensor(tails)
+
+                tails_scores = full_model.score_spo(
+                    tails_triples[:, 0],
+                    tails_triples[:, 1],
+                    tails_triples[:, 2],
+                    direction="o")
+
+                filtered_rank_tail = (tails_scores > true_score_tail).sum() + 1
+                rr_tail = 1 / filtered_rank_tail
+                all_ranks_tail.append(rr_tail)
+
+                true_score_head = full_model.score_spo(
+                    test_fact[0].view(1),
+                    test_fact[1].view(1),
+                    test_fact[2].view(1),
+                    direction="s"
+                )
+                # score all heads
+                heads_triples = torch.zeros(len(heads), 3).to(self.config.get("job.device"))
+                heads_triples[:, 1:] = po
+                heads_triples[:, 0] = torch.tensor(heads)
+
+                heads_scores = full_model.score_spo(
+                    heads_triples[:, 0],
+                    heads_triples[:, 1],
+                    heads_triples[:, 2],
+                    direction="s")
+
+                filtered_rank_head = (heads_scores > true_score_head).sum() + 1
+                rr_head = 1 / filtered_rank_head
+                all_ranks_head.append(rr_head)
+
+        mrr_head = torch.FloatTensor(all_ranks_head).mean()
+        mrr_tail = torch.FloatTensor(all_ranks_tail).mean()
+        print(f"MRR_head:{mrr_head}")
+        print(f"MRR_tail:{mrr_tail}")
+
 
     # TODO load/resume
     # def _load(self, checkpoint: Dict):
@@ -232,7 +324,7 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
            seen_model.get_p_embedder()._embeddings.weight.data
         )
 
-        # freeze embeddings of the seen entities
+        # # freeze embeddings of the seen entities
         foldin_model.get_o_embedder().freeze(seen_indexes)
 
         # freeze relation embeddings
@@ -251,7 +343,6 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
             parent_job=self
         )
         job.run()
-
         return job.model
 
 
@@ -313,15 +404,18 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
             us_in_head = aux[aux[:, 0] == int(unseen)]
             us_in_tail = aux[aux[:, 1] == int(unseen)]
 
+            # # decrease fact number
+            # us_in_head = us_in_head[:5]
+            # us_in_tail = us_in_tail[:5]
 
             relations_head = us_in_head[:, 1]
             relations_head = seen_model.get_p_embedder().embed(relations_head)
 
             # this are objects, i.e., where unseen is in head
-            entitities_head = us_in_head[:,2]
-            entitities_head = seen_model.get_o_embedder().embed(entitities_head)
+            entities_head = us_in_head[:,2]
+            entities_head = seen_model.get_o_embedder().embed(entities_head)
 
-            prod = (entitities_head * relations_head).detach().numpy()
+            prod = (entities_head * relations_head).detach().numpy()
 
             sum_outer_head = np.dot(prod.transpose(), prod)
 
@@ -329,27 +423,43 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
             relations_tail = seen_model.get_p_embedder().embed(relations_tail)
 
             # this are subjects, i.e., where unseen is in tail
-            entitities_tail = us_in_tail[:, 0]
-            entitities_tail = seen_model.get_s_embedder().embed(entitities_tail)
+            entities_tail = us_in_tail[:, 0]
+            entities_tail = seen_model.get_s_embedder().embed(entities_tail)
 
-            prod = (entitities_tail * relations_tail).detach().numpy()
+            prod = (entities_tail * relations_tail).detach().numpy()
 
             sum_outer_tail = np.dot(prod.transpose(), prod)
-
 
             A = -0.5*(sum_outer_head + sum_outer_tail + np.eye(sum_outer_head.shape[0], sum_outer_head.shape[1]))
 
 
-            b_head = (entitities_head * relations_head).sum(dim=0)
-            b_tail = (entitities_tail * relations_tail).sum(dim=0)
+            b_head = (entities_head * relations_head).sum(dim=0)
+            b_tail = (entities_tail * relations_tail).sum(dim=0)
 
             b = b_head + b_tail
 
             mu = np.dot(-2 * b.detach().numpy(),  inv(A))
 
             foldin_model.get_o_embedder()._embeddings.weight.data[int(unseen)] = torch.tensor(mu)
-
             print(f"Obtained embedding for {unseen}")
+
+
+            foldin_model.get_o_embedder()._embeddings.weight.data[
+                int(unseen)] = torch.tensor(mu)
+
+            # # try using the average of all neigbhours
+            # all = torch.cat((entities_head, entities_tail))
+            # mean = torch.mean(all, dim=0).detach()
+            #
+            # foldin_model.get_o_embedder()._embeddings.weight.data[
+            #     int(unseen)] = mean
+
+
+        foldin_model.get_o_embedder()._embeddings.weight.data = torch.nn.functional.normalize(
+                foldin_model.get_o_embedder()._embeddings.weight.data,
+                p=2, dim=-1
+        )
+
 
         return foldin_model
 
