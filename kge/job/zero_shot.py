@@ -34,6 +34,7 @@ class ZeroShotProtocolJob(Job):
         self.config.check("zero_shot.obtain_seen_model", ["load", "train"])
         self.obtain_seen_model = self.config.get("zero_shot.obtain_seen_model")
         self.device = self.config.get("job.device")
+        self.config.check("zero_shot.eval_type", ["incremental", "all"])
 
         # all done, run job_created_hooks if necessary
         if self.__class__ == ZeroShotProtocolJob:
@@ -54,13 +55,14 @@ class ZeroShotProtocolJob(Job):
 
     def run(self) -> dict:
         """Run zero-shot protocol."""
-        #TODO add to config
-        incremental = False
-        if not incremental:
+
+        eval_type = self.config.get("zero_shot.eval_type")
+
+        if eval_type == "all":
             seen_model = self.training_phase()
             full_model = self.auxiliary_phase(seen_model)
             self.evaluation_phase(full_model)
-        else:
+        elif eval_type == "incremental":
             seen_model = self.training_phase()
             full_model = self.auxiliary_phase(seen_model)
             self.incremental_zero_shot_evaluation_phase(full_model)
@@ -135,8 +137,11 @@ class ZeroShotProtocolJob(Job):
         seen_entities = [int(idx) for idx in
                            self.dataset.load_map("seen_entity_ids").keys()]
 
+        all = unseen_entities+seen_entities
         unseen_entities = np.array(unseen_entities)
         seen_entities = np.array(seen_entities)
+        all = np.array(all)
+
 
 
         #TODO make unseen slot configurable
@@ -203,7 +208,7 @@ class ZeroShotProtocolJob(Job):
                     direction="o")
 
                 filtered_rank_tail = (tails_scores > true_score_tail).sum() + 1
-                rr_tail = 1 / filtered_rank_tail
+                rr_tail = 1 / filtered_rank_tail.float()
                 all_ranks_tail.append(rr_tail)
 
                 true_score_head = full_model.score_spo(
@@ -224,7 +229,7 @@ class ZeroShotProtocolJob(Job):
                     direction="s")
 
                 filtered_rank_head = (heads_scores > true_score_head).sum() + 1
-                rr_head = 1 / filtered_rank_head
+                rr_head = 1 / filtered_rank_head.float()
                 all_ranks_head.append(rr_head)
 
         mrr_head = torch.FloatTensor(all_ranks_head).mean()
@@ -324,15 +329,16 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
            seen_model.get_p_embedder()._embeddings.weight.data
         )
 
-        # # freeze embeddings of the seen entities
-        foldin_model.get_o_embedder().freeze(seen_indexes)
+        if self.config.get("zero_shot.fold_in.freeze"):
+            # freeze embeddings of the seen entities
+            foldin_model.get_o_embedder().freeze(seen_indexes)
 
-        # freeze relation embeddings
-        foldin_model.get_p_embedder().freeze_all()
+            # freeze relation embeddings
+            foldin_model.get_p_embedder().freeze_all()
 
-        foldin_config.log(
-            "Training on auxiliary set while holding seen embeddings constant."
-        )
+            foldin_config.log(
+                "Training on auxiliary set while holding seen embeddings constant."
+            )
 
         foldin_config.set("train.max_epochs", 10)
 
@@ -359,9 +365,6 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
         if not (seen_model.get_o_embedder() == seen_model.get_s_embedder()):
             raise Exception("Using distinct subject and object embedder not permitted")
 
-        # TODO what has to be done... do everything iteratively first
-
-
         unseen_entities = list(self.dataset.load_map("unseen_entity_ids").keys())
 
         seen_indexes = torch.tensor(
@@ -369,97 +372,85 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
             device=self.device,
         )
 
-        # TODO config stuff is not used
-        seen_config = seen_model.config
-        foldin_config = seen_config.clone()
-        foldin_config.folder = self.config.folder
-        foldin_config.log_folder = self.config.folder
-        foldin_config.set("valid.every", 0)
-        foldin_config.set("train.split", "aux")
-        foldin_config.set(
-            "dataset",
-            self.config.get("dataset")
-        )
-
-
-
-        foldin_config.set("job.device", self.config.get("job.device"))
         # create a new model with the full dataset
-        # TODO rename; its not fold-in
-        foldin_model = KgeModel.create(foldin_config, self.dataset)
+        full_model = KgeModel.create(seen_model.config, self.dataset)
 
-        foldin_model.get_o_embedder()._embeddings.weight.data[seen_indexes] = (
+        # initialize seen embeddings with the trained model's embeddings
+        full_model.get_o_embedder()._embeddings.weight.data[seen_indexes] = (
             seen_model.get_o_embedder()._embeddings.weight.data
         )
 
-        foldin_model.get_p_embedder()._embeddings.weight.data = (
+        full_model.get_p_embedder()._embeddings.weight.data = (
             seen_model.get_p_embedder()._embeddings.weight.data
         )
 
-        #TODO with torch no grad
 
-        for unseen in unseen_entities:
-            aux = self.dataset.split("aux")
-            # collect all facts for this entity
-            us_in_head = aux[aux[:, 0] == int(unseen)]
-            us_in_tail = aux[aux[:, 1] == int(unseen)]
+        with torch.no_grad():
+            for unseen in unseen_entities:
+                aux = self.dataset.split("aux")
+                # collect all facts for this entity
+                us_in_head = aux[aux[:, 0] == int(unseen)]
+                us_in_tail = aux[aux[:, 1] == int(unseen)]
 
-            # # decrease fact number
-            # us_in_head = us_in_head[:5]
-            # us_in_tail = us_in_tail[:5]
+                # # decrease fact number
+                # us_in_head = us_in_head[:5]
+                # us_in_tail = us_in_tail[:5]
 
-            relations_head = us_in_head[:, 1]
-            relations_head = seen_model.get_p_embedder().embed(relations_head)
+                relations_head = us_in_head[:, 1]
+                relations_head = seen_model.get_p_embedder().embed(relations_head)
 
-            # this are objects, i.e., where unseen is in head
-            entities_head = us_in_head[:,2]
-            entities_head = seen_model.get_o_embedder().embed(entities_head)
+                # this are objects, i.e., where unseen is in head
+                entities_head = us_in_head[:,2]
+                entities_head = seen_model.get_o_embedder().embed(entities_head)
 
-            prod = (entities_head * relations_head).detach().numpy()
+                prod = (entities_head * relations_head).detach().numpy()
 
-            sum_outer_head = np.dot(prod.transpose(), prod)
+                sum_outer_head = np.dot(prod.transpose(), prod)
 
-            relations_tail = us_in_tail[:, 1]
-            relations_tail = seen_model.get_p_embedder().embed(relations_tail)
+                relations_tail = us_in_tail[:, 1]
+                relations_tail = seen_model.get_p_embedder().embed(relations_tail)
 
-            # this are subjects, i.e., where unseen is in tail
-            entities_tail = us_in_tail[:, 0]
-            entities_tail = seen_model.get_s_embedder().embed(entities_tail)
+                # this are subjects, i.e., where unseen is in tail
+                entities_tail = us_in_tail[:, 0]
+                entities_tail = seen_model.get_s_embedder().embed(entities_tail)
 
-            prod = (entities_tail * relations_tail).detach().numpy()
+                prod = (entities_tail * relations_tail).detach().numpy()
 
-            sum_outer_tail = np.dot(prod.transpose(), prod)
+                sum_outer_tail = np.dot(prod.transpose(), prod)
 
-            A = -0.5*(sum_outer_head + sum_outer_tail + np.eye(sum_outer_head.shape[0], sum_outer_head.shape[1]))
-
-
-            b_head = (entities_head * relations_head).sum(dim=0)
-            b_tail = (entities_tail * relations_tail).sum(dim=0)
-
-            b = b_head + b_tail
-
-            mu = np.dot(-2 * b.detach().numpy(),  inv(A))
-
-            foldin_model.get_o_embedder()._embeddings.weight.data[int(unseen)] = torch.tensor(mu)
-            print(f"Obtained embedding for {unseen}")
+                A = -0.5*(sum_outer_head + sum_outer_tail + np.eye(
+                    sum_outer_head.shape[0], sum_outer_head.shape[1])
+                          )
 
 
-            foldin_model.get_o_embedder()._embeddings.weight.data[
-                int(unseen)] = torch.tensor(mu)
+                b_head = (entities_head * relations_head).sum(dim=0)
+                b_tail = (entities_tail * relations_tail).sum(dim=0)
 
-            # # try using the average of all neigbhours
-            # all = torch.cat((entities_head, entities_tail))
-            # mean = torch.mean(all, dim=0).detach()
-            #
-            # foldin_model.get_o_embedder()._embeddings.weight.data[
-            #     int(unseen)] = mean
+                b = b_head + b_tail
+
+                mu = np.dot(-2 * b.detach().numpy(),  inv(A))
+
+                full_model.get_o_embedder(
+                )._embeddings.weight.data[int(unseen)] = torch.tensor(mu)
+                print(f"Obtained embedding for index {unseen}")
+
+                full_model.get_o_embedder()._embeddings.weight.data[
+                    int(unseen)] = torch.tensor(mu)
+
+                # # try using the average of all neigbhours
+                # all = torch.cat((entities_head, entities_tail))
+                # mean = torch.mean(all, dim=0).detach()
+                #
+                # foldin_model.get_o_embedder()._embeddings.weight.data[
+                #     int(unseen)] = mean
+
+            if self.config.get("zero_shot.closed_form.normalize"):
+                full_model.get_o_embedder()._embeddings.weight.data =\
+                    torch.nn.functional.normalize(
+                        full_model.get_o_embedder()._embeddings.weight.data,
+                        p=2, dim=-1
+                    )
 
 
-        foldin_model.get_o_embedder()._embeddings.weight.data = torch.nn.functional.normalize(
-                foldin_model.get_o_embedder()._embeddings.weight.data,
-                p=2, dim=-1
-        )
-
-
-        return foldin_model
+        return full_model
 

@@ -3,6 +3,7 @@ job.type: zero_shot
 zero_shot:
   type: closed_form
   obtain_seen_model: load
+  eval_type: all
   # remote
   #seen_checkpoint: local/zero-shot-experiments/zero-shot-subject-10/checkpoint_best_distmult.pt
   # local

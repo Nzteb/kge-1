@@ -496,7 +496,15 @@ ax_search:
   parameter_constraints: []
 
 zero_shot:
+  # possible values for type:
+  # - cloed_form: obtain embeddings by using the mean of the full conditional
+  # - fold_in: train on the auxiliary split
   type: fold_in
+  # eval type:
+  #  - incremental: rank against all seen + current unseen
+  #  - all: rank against all seen + alle unseen
+  eval_type: all
+
   # How to obtain the model for the seen entities
   # Possible values:
   # - train: train from scratch
@@ -506,6 +514,15 @@ zero_shot:
   # the pretrained model must be trained on the training split of the seen entities
   # (e.g. using a seen_entity_ids.del file as entity_ids file)
   seen_checkpoint: ""
+
+  closed_form:
+    # normalize (l2) all embeddings (seen + unseen) after obtaining closed-form
+    # embeddings for the unseen entities
+    normalize: False
+
+  fold_in:
+    # when training on the auxiliary split, freeze the embeddings of the seen entities
+    freeze: True
 
 
 ## USER PARAMETERS #####################################################################
