@@ -149,18 +149,18 @@ class ZeroShotProtocolJob(Job):
 
         full_model.eval()
 
-        aux = self.dataset.split("aux")
-
         all_ranks_head = []
         all_ranks_tail = []
         count = 0
 
+        # when scored against all entities (seen + unseen) this implementation
+        # produces the same results as libKGE
+        # this coded can be used to calculate MRR_filt when scored against subsets
+        # e.g. scored against seen_entities + current unseen entity
         for unseen in unseen_entities:
             count += 1
             print(count)
 
-            aux_facts_head = aux[aux[:, 0] == unseen]
-            aux_facts_tail = aux[aux[:, 1] == unseen]
             # the test facts have a fixed slot where the unseen entity can appear
             test = self.dataset.split("test").to(self.config.get("job.device"))
             test_facts = test[test[:, unseen_slot] == unseen]
@@ -169,8 +169,11 @@ class ZeroShotProtocolJob(Job):
             for test_fact in test_facts:
                 sp = test_fact[:2]
                 po = test_fact[1:]
-                tails = seen_entities.copy()
-                heads = seen_entities.copy()
+
+                # score against seen entities + current unseen
+                tails = seen_entities
+                heads = seen_entities
+
                 for existing_heads in [
                     self.dataset.index("train_po_to_s")[po[0].item(), po[1].item()],
                     self.dataset.index("valid_po_to_s")[po[0].item(), po[1].item()],
@@ -207,7 +210,8 @@ class ZeroShotProtocolJob(Job):
                     tails_triples[:, 2],
                     direction="o")
 
-                filtered_rank_tail = (tails_scores > true_score_tail).sum() + 1
+                num_ties = (tails_scores == true_score_tail).sum()
+                filtered_rank_tail = (tails_scores > true_score_tail).sum() + 1 + num_ties // 2
                 rr_tail = 1 / filtered_rank_tail.float()
                 all_ranks_tail.append(rr_tail)
 
@@ -228,7 +232,8 @@ class ZeroShotProtocolJob(Job):
                     heads_triples[:, 2],
                     direction="s")
 
-                filtered_rank_head = (heads_scores > true_score_head).sum() + 1
+                num_ties = (heads_scores == true_score_head).sum()
+                filtered_rank_head = (heads_scores > true_score_head).sum() + 1 + num_ties // 2
                 rr_head = 1 / filtered_rank_head.float()
                 all_ranks_head.append(rr_head)
 
@@ -385,6 +390,7 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
         )
 
 
+
         with torch.no_grad():
             for unseen in unseen_entities:
                 aux = self.dataset.split("aux")
@@ -434,8 +440,7 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
                 )._embeddings.weight.data[int(unseen)] = torch.tensor(mu)
                 print(f"Obtained embedding for index {unseen}")
 
-                full_model.get_o_embedder()._embeddings.weight.data[
-                    int(unseen)] = torch.tensor(mu)
+
 
                 # # try using the average of all neigbhours
                 # all = torch.cat((entities_head, entities_tail))
