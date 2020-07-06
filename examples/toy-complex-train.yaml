@@ -1,5 +1,5 @@
 job.type: train
-dataset.name: toy
+dataset.name: zero-shot-head-10
 eval.filter_with_test: false
 valid.metric: mean_reciprocal_rank_filtered
 valid.every: 1
@@ -12,6 +12,7 @@ train:
   lr_scheduler_args:
     mode: max
     patience: 4
+  split: train_aux
 
 model: complex
 lookup_embedder:

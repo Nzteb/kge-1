@@ -27,7 +27,7 @@ class ZeroShotProtocolJob(Job):
         # e.g. entity_ids corresponds to only one file, however, the dataset has
         # two different entity_ids files, one corresponding to only the seen
         # entities and one corresponding to all entities
-        dataset = dataset.create(self.config, preload_data=False)
+        dataset = Dataset.create(self.config, preload_data=False)
         self.config.set("dataset.files.entity_ids.filename", "all_entity_ids.del")
         dataset.config = self.config
         self.dataset = dataset
@@ -157,6 +157,7 @@ class ZeroShotProtocolJob(Job):
         # produces the same results as libKGE
         # this coded can be used to calculate MRR_filt when scored against subsets
         # e.g. scored against seen_entities + current unseen entity
+        # note that this code is super naive/slow it just does everything in a loop
         for unseen in unseen_entities:
             count += 1
             print(count)
@@ -345,16 +346,38 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
                 "Training on auxiliary set while holding seen embeddings constant."
             )
 
+        # create new dataset to remain flexible
+        self.config.set("dataset.pickle", False)
+        foldin_dataset = Dataset.create(self.config, preload_data=False)
+        if self.config.get("zero_shot.fold_in.max_triple") > 0:
+            self.subset_data(foldin_dataset)
+
         foldin_config.set("train.max_epochs", 10)
 
         job = TrainingJob.create(
             config=foldin_config,
-            dataset=self.dataset,
+            dataset=foldin_dataset,
             model=foldin_model,
             parent_job=self
         )
         job.run()
         return job.model
+
+    def subset_data(self, dataset):
+        unseen_entities = list(self.dataset.load_map("unseen_entity_ids").keys())
+        max_triple = self.config.get("zero_shot.fold_in.max_triple")
+
+        aux = self.dataset.split("aux")
+        new_aux = torch.zeros(1, 3).int()
+        for unseen in unseen_entities:
+            facts = aux[aux[:, 0] == int(unseen)][:max_triple]
+            new_aux = torch.cat((facts, new_aux), dim=0)
+            facts = aux[aux[:, 2] == int(unseen)][:max_triple]
+            new_aux = torch.cat((facts, new_aux), dim=0)
+        # TODO you seriously don't want to do it like that
+        dataset._triples["aux"] = new_aux[:-1]
+
+
 
 
 class ZeroShotClosedFormJob(ZeroShotProtocolJob):

@@ -1,0 +1,35 @@
+dataset.name: zero-shot-head-10
+job.type: zero_shot
+zero_shot:
+  #{fold_in, closed_form}
+  type: fold_in
+  fold_in.max_triple: -1
+  obtain_seen_model: load
+  # {all, incremental}
+  eval_type: incremental
+  # remote
+  seen_checkpoint: local/zero-shot-experiments/zero-shot-subject-10/checkpoint_best_complex_mr.pt
+  # local
+  #seen_checkpoint: local/experiments/checkpoint_best_distmult.pt
+
+valid.every: 3
+train.max_epochs: 5
+
+model: complex
+lookup_embedder:
+  dim: 100
+  regularize_weight: 0.8e-7
+  initialize: normal_
+  initialize_args:
+    normal_:
+      mean: 0.0
+      std: 0.1
+
+train:
+  optimizer: Adagrad
+  optimizer_args:
+    lr: 0.2
+  lr_scheduler: ReduceLROnPlateau
+  lr_scheduler_args:
+    mode: max
+    patience: 4

@@ -523,7 +523,9 @@ zero_shot:
   fold_in:
     # when training on the auxiliary split, freeze the embeddings of the seen entities
     freeze: True
-
+    # max triples per unseen entities to use in the aux dataset
+    # set to -1 to use all
+    max_triple: -1
 
 ## USER PARAMETERS #####################################################################
 
