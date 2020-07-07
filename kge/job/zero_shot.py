@@ -176,9 +176,9 @@ class ZeroShotProtocolJob(Job):
         # this coded can be used to calculate MRR_filt when scored against subsets
         # e.g. scored against seen_entities + current unseen entity
         # note that this code is super naive/slow it just does everything in a loop
+        print("Start incremental evaluation")
         for unseen in unseen_entities:
             count += 1
-            print(count)
 
             # the test facts have a fixed slot where the unseen entity can appear
             test = self.dataset.split("test").to(self.config.get("job.device"))
@@ -258,6 +258,8 @@ class ZeroShotProtocolJob(Job):
 
         mrr_head = torch.FloatTensor(all_ranks_head).mean()
         mrr_tail = torch.FloatTensor(all_ranks_tail).mean()
+        self.config.log(f"MRR_head:{mrr_head}")
+        self.config.log(f"MRR_tail:{mrr_tail}")
         print(f"MRR_head:{mrr_head}")
         print(f"MRR_tail:{mrr_tail}")
 
@@ -370,7 +372,7 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
         if self.config.get("zero_shot.fold_in.max_triple") > 0:
             self.subset_data(foldin_dataset)
 
-        foldin_epoch = self.config.get("fold_in.num_epoch")
+        foldin_epoch = self.config.get("zero_shot.fold_in.num_epoch")
         if foldin_epoch > 0:
             foldin_config.set("train.max_epochs", foldin_epoch)
 
@@ -401,7 +403,7 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
 
 
 class ZeroShotClosedFormJob(ZeroShotProtocolJob):
-    """Obtain zero-shot embeddings in closed-form."""
+    """Obtain zero-shot embeddings based on distmult in closed-form."""
 
     def __init__(self, config, dataset, parent_job, model):
         super().__init__(config, dataset, parent_job, model)
@@ -482,8 +484,6 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
                 full_model.get_o_embedder(
                 )._embeddings.weight.data[int(unseen)] = torch.tensor(mu)
                 print(f"Obtained embedding for index {unseen}")
-
-
 
                 # # try using the average of all neigbhours
                 # all = torch.cat((entities_head, entities_tail))
