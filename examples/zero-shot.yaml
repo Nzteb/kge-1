@@ -1,15 +1,21 @@
 dataset.name: zero-shot-head-10
 job.type: zero_shot
 zero_shot:
+  only_eval: False
+  full_model_checkpoint: local/thesis/zero-shot-experiments/head-10/train-on-validAndAux/complex-1vsAll-kl/checkpoint_best.pt
+
   #{fold_in, closed_form}
-  type: closed_form
+  type: fold_in
   obtain_seen_model: load
   # {all, incremental}
   eval_type: incremental
   # remote
   #seen_checkpoint: local/zero-shot-experiments/zero-shot-subject-10/checkpoint_best_complex_mr.pt
   # local
-  seen_checkpoint: local/experiments/checkpoint_best_distmult.pt
+  seen_checkpoint: local/experiments/checkpoint_best_complex_kl.pt
+
+  fold_in:
+    num_epoch: -1
 
 valid.every: 3
 train.max_epochs: 5

@@ -496,6 +496,13 @@ ax_search:
   parameter_constraints: []
 
 zero_shot:
+
+  # if aux_phase is false directly load a full model, i.e., a model that is capable
+  # of scoring triples with seen + unseen entities
+  only_eval: False
+  # checkpoint of the model if aux phase is skipped
+  full_model_checkpoint: ""
+
   # possible values for type:
   # - cloed_form: obtain embeddings by using the mean of the full conditional
   # - fold_in: train on the auxiliary split
@@ -526,6 +533,8 @@ zero_shot:
     # max triples per unseen entities to use in the aux dataset
     # set to -1 to use all
     max_triple: -1
+    # leave -1 then the epoch number of the seen model will be chosen
+    num_epoch: -1
 
 ## USER PARAMETERS #####################################################################
 

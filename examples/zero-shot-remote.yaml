@@ -8,7 +8,7 @@ zero_shot:
   # {all, incremental}
   eval_type: incremental
   # remote
-  seen_checkpoint: local/zero-shot-experiments/zero-shot-subject-10/checkpoint_best_complex_mr.pt
+  seen_checkpoint: local/zero-shot-experiments/zero-shot-subject-10/checkpoint_best_complex_kl.pt
   # local
   #seen_checkpoint: local/experiments/checkpoint_best_distmult.pt
 

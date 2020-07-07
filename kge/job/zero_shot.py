@@ -36,6 +36,12 @@ class ZeroShotProtocolJob(Job):
         self.device = self.config.get("job.device")
         self.config.check("zero_shot.eval_type", ["incremental", "all"])
 
+        self.only_eval = self.config.get("zero_shot.only_eval")
+        if self.only_eval and self.config.get("zero_shot.full_model_checkpoint") == "":
+            raise Exception(
+                "If aux + training phase is skipped, you have to provide a full model"
+            )
+
         # all done, run job_created_hooks if necessary
         if self.__class__ == ZeroShotProtocolJob:
             for f in Job.job_created_hooks:
@@ -58,14 +64,26 @@ class ZeroShotProtocolJob(Job):
 
         eval_type = self.config.get("zero_shot.eval_type")
 
-        if eval_type == "all":
-            seen_model = self.training_phase()
-            full_model = self.auxiliary_phase(seen_model)
-            self.evaluation_phase(full_model)
-        elif eval_type == "incremental":
-            seen_model = self.training_phase()
-            full_model = self.auxiliary_phase(seen_model)
+        if not self.only_eval:
+            if eval_type == "all":
+                seen_model = self.training_phase()
+                full_model = self.auxiliary_phase(seen_model)
+                self.evaluation_phase(full_model)
+            elif eval_type == "incremental":
+                seen_model = self.training_phase()
+                full_model = self.auxiliary_phase(seen_model)
+                self.incremental_zero_shot_evaluation_phase(full_model)
+        else:
+            full_checkpoint_file = self.config.get("zero_shot.full_model_checkpoint")
+            full_checkpoint_file = path.join(kge_base_dir(), full_checkpoint_file)
+
+
+            full_checkpoint = load_checkpoint(
+                checkpoint_file=full_checkpoint_file
+            )
+            full_model = KgeModel.create_from(full_checkpoint, dataset=self.dataset)
             self.incremental_zero_shot_evaluation_phase(full_model)
+
 
 
     def training_phase(self):
@@ -352,7 +370,9 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
         if self.config.get("zero_shot.fold_in.max_triple") > 0:
             self.subset_data(foldin_dataset)
 
-        foldin_config.set("train.max_epochs", 10)
+        foldin_epoch = self.config.get("fold_in.num_epoch")
+        if foldin_epoch > 0:
+            foldin_config.set("train.max_epochs", foldin_epoch)
 
         job = TrainingJob.create(
             config=foldin_config,
