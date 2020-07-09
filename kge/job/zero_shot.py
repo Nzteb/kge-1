@@ -56,6 +56,9 @@ class ZeroShotProtocolJob(Job):
             return ZeroShotFoldInJob(config, dataset, parent_job=parent_job, model=model)
         elif config.get("zero_shot.type") == "closed_form":
             return ZeroShotClosedFormJob(config, dataset, parent_job=parent_job, model=model)
+        elif config.get("zero_shot.type") == "similarity":
+            return ZeroShotSimilariyJob(config, dataset, parent_job=parent_job, model=model)
+
         else:
             raise ValueError("zero_shot.type")
 
@@ -83,8 +86,6 @@ class ZeroShotProtocolJob(Job):
             )
             full_model = KgeModel.create_from(full_checkpoint, dataset=self.dataset)
             self.incremental_zero_shot_evaluation_phase(full_model)
-
-
 
     def training_phase(self):
         """Train a model on the seen entities or load a pre-trained model."""
@@ -434,14 +435,12 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
             seen_model.get_p_embedder()._embeddings.weight.data
         )
 
-
-
         with torch.no_grad():
             for unseen in unseen_entities:
                 aux = self.dataset.split("aux")
                 # collect all facts for this entity
                 us_in_head = aux[aux[:, 0] == int(unseen)]
-                us_in_tail = aux[aux[:, 1] == int(unseen)]
+                us_in_tail = aux[aux[:, 2] == int(unseen)]
 
                 # # decrease fact number
                 # us_in_head = us_in_head[:5]
@@ -502,3 +501,84 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
 
         return full_model
 
+
+class ZeroShotSimilariyJob(ZeroShotProtocolJob):
+    """Obtain zero-shot embeddings based on embeddings occuring in similar triples."""
+
+    def __init__(self, config, dataset, parent_job, model):
+        super().__init__(config, dataset, parent_job, model)
+        if self.__class__ == ZeroShotFoldInJob:
+            for f in Job.job_created_hooks:
+                f(self)
+
+    def auxiliary_phase(self, seen_model):
+        if not (seen_model.get_o_embedder() == seen_model.get_s_embedder()):
+            raise Exception("Using distinct subject and object embedder not permitted")
+
+        unseen_entities = list(self.dataset.load_map("unseen_entity_ids").keys())
+
+        seen_indexes = torch.tensor(
+            [int(i) for i in self.dataset.load_map(key="seen_entity_ids").keys()],
+            device=self.device,
+        )
+
+        # create a new model with the full dataset
+        full_model = KgeModel.create(seen_model.config, self.dataset)
+
+        # initialize seen embeddings with the trained model's embeddings
+        full_model.get_o_embedder()._embeddings.weight.data[seen_indexes] = (
+            seen_model.get_o_embedder()._embeddings.weight.data
+        )
+
+        full_model.get_p_embedder()._embeddings.weight.data = (
+            seen_model.get_p_embedder()._embeddings.weight.data
+        )
+
+        train_sp_to_o = self.dataset.index("train_sp_to_o")
+        train_po_to_s = self.dataset.index("train_po_to_s")
+
+        dim = seen_model.get_o_embedder()._embeddings.weight.size(1)
+
+        with torch.no_grad():
+            for unseen in unseen_entities:
+                aux = self.dataset.split("aux")
+                # collect all facts for this entity
+                us_in_head = aux[aux[:, 0] == int(unseen)]
+                us_in_tail = aux[aux[:, 2] == int(unseen)]
+
+                # us_in_head = aux[aux[:, 0] == int(unseen)][0:1]
+                # #us_in_tail = aux[aux[:, 1] == int(unseen)][0:2]
+
+                # # pick one fact randomly
+                # if len(us_in_head):
+                #     us_in_head = us_in_head[torch.randint(0, len(us_in_head), (1,))]
+                # if len(us_in_tail):
+                #     us_in_tail = us_in_tail[torch.randint(0, len(us_in_tail), (1,))]
+
+                emb = torch.zeros(1, dim)
+                counts = 0
+                with torch.no_grad():
+                    # for sp in us_in_tail[:, [0, 1]]:
+                    #     entities = train_sp_to_o[(int(sp[0]),int(sp[1]))]
+                    #     counts += len(entities)
+                    #     entities = seen_model.get_o_embedder().embed(torch.tensor(entities))
+                    #     emb += entities.sum(dim=0)
+                    for po in us_in_head[:, [1, 2]]:
+                        entities = train_po_to_s[(int(po[0]), int(po[1]))]
+                        counts += len(entities)
+                        entities = seen_model.get_o_embedder().embed(torch.tensor(entities))
+                        emb += entities.sum(dim=0)
+
+                emb = emb / counts
+
+                full_model.get_o_embedder(
+                )._embeddings.weight.data[int(unseen)] = emb
+                print("obtained embedding for: " + str(unseen))
+
+
+
+
+
+
+
+        return full_model

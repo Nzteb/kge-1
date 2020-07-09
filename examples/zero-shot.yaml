@@ -4,15 +4,16 @@ zero_shot:
   only_eval: False
   full_model_checkpoint: local/thesis/zero-shot-experiments/head-10/train-on-validAndAux/complex-1vsAll-kl/checkpoint_best.pt
 
-  #{fold_in, closed_form}
-  type: fold_in
+  #{fold_in, closed_form, similarity}
+  type: similarity
   obtain_seen_model: load
   # {all, incremental}
   eval_type: incremental
   # remote
   #seen_checkpoint: local/zero-shot-experiments/zero-shot-subject-10/checkpoint_best_complex_mr.pt
   # local
-  seen_checkpoint: local/experiments/checkpoint_best_complex_kl.pt
+  seen_checkpoint: local/zero-shot-experiments/head-10/fold-in/checkpoint_best_distmult_1vsAll_kl.pt
+  #seen_checkpoint: local/experiments/checkpoint_best_distmult.pt
 
   fold_in:
     num_epoch: -1
