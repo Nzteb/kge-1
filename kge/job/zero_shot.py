@@ -166,6 +166,8 @@ class ZeroShotProtocolJob(Job):
         all_ranks_tail = []
         count = 0
 
+        full_model.to(self.config.get("job.device"))
+
         # when scored against all entities (seen + unseen) this implementation
         # produces the same results as libKGE
         # this code can be used to calculate MRR_filt when scored against subsets
@@ -179,12 +181,11 @@ class ZeroShotProtocolJob(Job):
             test = self.dataset.split("test").to(self.config.get("job.device"))
             test_facts = test[test[:, unseen_slot] == unseen]
 
-
             for test_fact in test_facts:
                 sp = test_fact[:2]
                 po = test_fact[1:]
 
-                # score against seen entities + current unseen
+                # score against seen entities
                 tails = seen_entities
                 heads = seen_entities
 
