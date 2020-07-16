@@ -57,7 +57,7 @@ class ZeroShotProtocolJob(Job):
         elif config.get("zero_shot.type") == "closed_form":
             return ZeroShotClosedFormJob(config, dataset, parent_job=parent_job, model=model)
         elif config.get("zero_shot.type") == "similarity":
-            return ZeroShotSimilariyJob(config, dataset, parent_job=parent_job, model=model)
+            return ZeroShotSimilarityJob(config, dataset, parent_job=parent_job, model=model)
 
         else:
             raise ValueError("zero_shot.type")
@@ -78,9 +78,6 @@ class ZeroShotProtocolJob(Job):
                 self.incremental_zero_shot_evaluation_phase(full_model)
         else:
             full_checkpoint_file = self.config.get("zero_shot.full_model_checkpoint")
-            full_checkpoint_file = path.join(kge_base_dir(), full_checkpoint_file)
-
-
             full_checkpoint = load_checkpoint(
                 checkpoint_file=full_checkpoint_file
             )
@@ -91,10 +88,7 @@ class ZeroShotProtocolJob(Job):
         """Train a model on the seen entities or load a pre-trained model."""
 
         if self.obtain_seen_model == "load":
-            seen_checkpoint_file = path.join(
-                kge_base_dir(),
-                self.config.get("zero_shot.seen_checkpoint")
-            )
+            seen_checkpoint_file = self.config.get("zero_shot.seen_checkpoint")
             checkpoint = load_checkpoint(checkpoint_file=seen_checkpoint_file)
             seen_model = KgeModel.create_from(checkpoint)
             return seen_model
@@ -174,7 +168,7 @@ class ZeroShotProtocolJob(Job):
 
         # when scored against all entities (seen + unseen) this implementation
         # produces the same results as libKGE
-        # this coded can be used to calculate MRR_filt when scored against subsets
+        # this code can be used to calculate MRR_filt when scored against subsets
         # e.g. scored against seen_entities + current unseen entity
         # note that this code is super naive/slow it just does everything in a loop
         print("Start incremental evaluation")
@@ -401,8 +395,6 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
         dataset._triples["aux"] = new_aux[:-1]
 
 
-
-
 class ZeroShotClosedFormJob(ZeroShotProtocolJob):
     """Obtain zero-shot embeddings based on distmult in closed-form."""
 
@@ -450,7 +442,7 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
                 relations_head = seen_model.get_p_embedder().embed(relations_head)
 
                 # this are objects, i.e., where unseen is in head
-                entities_head = us_in_head[:,2]
+                entities_head = us_in_head[:, 2]
                 entities_head = seen_model.get_o_embedder().embed(entities_head)
 
                 prod = (entities_head * relations_head).detach().numpy()
@@ -497,12 +489,10 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
                         full_model.get_o_embedder()._embeddings.weight.data,
                         p=2, dim=-1
                     )
-
-
         return full_model
 
 
-class ZeroShotSimilariyJob(ZeroShotProtocolJob):
+class ZeroShotSimilarityJob(ZeroShotProtocolJob):
     """Obtain zero-shot embeddings based on embeddings occuring in similar triples."""
 
     def __init__(self, config, dataset, parent_job, model):
@@ -549,11 +539,11 @@ class ZeroShotSimilariyJob(ZeroShotProtocolJob):
                 # us_in_head = aux[aux[:, 0] == int(unseen)][0:1]
                 # #us_in_tail = aux[aux[:, 1] == int(unseen)][0:2]
 
-                # # pick one fact randomly
-                # if len(us_in_head):
-                #     us_in_head = us_in_head[torch.randint(0, len(us_in_head), (1,))]
-                # if len(us_in_tail):
-                #     us_in_tail = us_in_tail[torch.randint(0, len(us_in_tail), (1,))]
+                # pick one fact randomly
+                if len(us_in_head):
+                    us_in_head = us_in_head[torch.randint(0, len(us_in_head), (1,))]
+                if len(us_in_tail):
+                    us_in_tail = us_in_tail[torch.randint(0, len(us_in_tail), (1,))]
 
                 emb = torch.zeros(1, dim)
                 counts = 0
