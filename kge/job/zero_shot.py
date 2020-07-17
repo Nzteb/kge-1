@@ -165,7 +165,6 @@ class ZeroShotProtocolJob(Job):
         all_ranks_head = []
         all_ranks_tail = []
         count = 0
-
         full_model.to(self.config.get("job.device"))
 
         # when scored against all entities (seen + unseen) this implementation
@@ -214,6 +213,10 @@ class ZeroShotProtocolJob(Job):
                     test_fact[2].view(1),
                     direction="o"
                 )
+
+                if torch.sum(torch.isnan(true_score_tail)):
+                    raise Exception("Nan value in scores...")
+
                 # score all tails
                 tails_triples = torch.zeros(len(tails), 3).to(self.config.get("job.device"))
                 tails_triples[:, : 2] = sp
@@ -224,6 +227,9 @@ class ZeroShotProtocolJob(Job):
                     tails_triples[:, 1],
                     tails_triples[:, 2],
                     direction="o")
+
+                if torch.sum(torch.isnan(tails_scores)):
+                    raise Exception("Nan value in scores...")
 
                 num_ties = (tails_scores == true_score_tail).sum()
                 filtered_rank_tail = (tails_scores > true_score_tail).sum() + 1 + num_ties // 2
@@ -236,6 +242,10 @@ class ZeroShotProtocolJob(Job):
                     test_fact[2].view(1),
                     direction="s"
                 )
+
+                if torch.sum(torch.isnan(true_score_head)):
+                    raise Exception("Nan value in scores...")
+
                 # score all heads
                 heads_triples = torch.zeros(len(heads), 3).to(self.config.get("job.device"))
                 heads_triples[:, 1:] = po
@@ -246,6 +256,9 @@ class ZeroShotProtocolJob(Job):
                     heads_triples[:, 1],
                     heads_triples[:, 2],
                     direction="s")
+
+                if torch.sum(torch.isnan(heads_scores)):
+                    raise Exception("Nan value in scores...")
 
                 num_ties = (heads_scores == true_score_head).sum()
                 filtered_rank_head = (heads_scores > true_score_head).sum() + 1 + num_ties // 2
@@ -481,7 +494,7 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
                 # all = torch.cat((entities_head, entities_tail))
                 # mean = torch.mean(all, dim=0).detach()
                 #
-                # foldin_model.get_o_embedder()._embeddings.weight.data[
+                # full_model.get_o_embedder()._embeddings.weight.data[
                 #     int(unseen)] = mean
 
             if self.config.get("zero_shot.closed_form.normalize"):
@@ -494,7 +507,12 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
 
 
 class ZeroShotSimilarityJob(ZeroShotProtocolJob):
-    """Obtain zero-shot embeddings based on embeddings occuring in similar triples."""
+    """Average similarity-pooling.
+
+    Obtain embeddings for unseen entities by taking the average of embeddings
+    occurring in similar triples.
+
+    """
 
     def __init__(self, config, dataset, parent_job, model):
         super().__init__(config, dataset, parent_job, model)
@@ -532,7 +550,7 @@ class ZeroShotSimilarityJob(ZeroShotProtocolJob):
 
         with torch.no_grad():
             for unseen in unseen_entities:
-                aux = self.dataset.split("aux")
+                aux = self.dataset.split("aux").to(self.config.get("job.device"))
                 # collect all facts for this entity
                 us_in_head = aux[aux[:, 0] == int(unseen)]
                 us_in_tail = aux[aux[:, 2] == int(unseen)]
@@ -540,14 +558,15 @@ class ZeroShotSimilarityJob(ZeroShotProtocolJob):
                 # us_in_head = aux[aux[:, 0] == int(unseen)][0:1]
                 # #us_in_tail = aux[aux[:, 1] == int(unseen)][0:2]
 
-                # pick one fact randomly
-                if len(us_in_head):
-                    us_in_head = us_in_head[torch.randint(0, len(us_in_head), (1,))]
-                if len(us_in_tail):
-                    us_in_tail = us_in_tail[torch.randint(0, len(us_in_tail), (1,))]
+                # # pick one fact randomly
+                # if len(us_in_head):
+                #     us_in_head = us_in_head[torch.randint(0, len(us_in_head), (1,))]
+                # if len(us_in_tail):
+                #     us_in_tail = us_in_tail[torch.randint(0, len(us_in_tail), (1,))]
 
                 emb = torch.zeros(1, dim)
                 counts = 0
+
                 with torch.no_grad():
                     # for sp in us_in_tail[:, [0, 1]]:
                     #     entities = train_sp_to_o[(int(sp[0]),int(sp[1]))]
@@ -557,14 +576,19 @@ class ZeroShotSimilarityJob(ZeroShotProtocolJob):
                     for po in us_in_head[:, [1, 2]]:
                         entities = train_po_to_s[(int(po[0]), int(po[1]))]
                         counts += len(entities)
+                        if type(entities) == list:
+                            print("ohohoh")
+                        else:
+                            print("good")
                         entities = seen_model.get_o_embedder().embed(torch.tensor(entities))
                         emb += entities.sum(dim=0)
+            if counts:
+                    emb = emb / counts
 
-                emb = emb / counts
+                    full_model.get_o_embedder(
+                    )._embeddings.weight.data[int(unseen)] = emb
+                    print("obtained embedding for: " + str(unseen))
 
-                full_model.get_o_embedder(
-                )._embeddings.weight.data[int(unseen)] = emb
-                print("obtained embedding for: " + str(unseen))
 
 
 

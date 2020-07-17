@@ -1,0 +1,10 @@
+dataset.name: zero-shot-head-10
+job.type: zero_shot
+zero_shot:
+  only_eval: False
+  #{fold_in, closed_form, similarity}
+  type: closed_form
+  obtain_seen_model: load
+  # {all, incremental}
+  eval_type: incremental
+  seen_checkpoint: /home/patrick/Desktop/kge/local/experiments/checkpoint_best_distmult.pt
