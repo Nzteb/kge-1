@@ -150,12 +150,8 @@ class ZeroShotProtocolJob(Job):
         seen_entities = [int(idx) for idx in
                            self.dataset.load_map("seen_entity_ids").keys()]
 
-        all = unseen_entities+seen_entities
         unseen_entities = np.array(unseen_entities)
         seen_entities = np.array(seen_entities)
-        all = np.array(all)
-
-
 
         #TODO make unseen slot configurable
         unseen_slot = S
@@ -216,6 +212,8 @@ class ZeroShotProtocolJob(Job):
 
                 if torch.sum(torch.isnan(true_score_tail)):
                     raise Exception("Nan value in scores...")
+                elif torch.sum(true_score_tail == float("inf")):
+                    raise Exception("Inf value in scores..")
 
                 # score all tails
                 tails_triples = torch.zeros(len(tails), 3).to(self.config.get("job.device"))
@@ -230,6 +228,9 @@ class ZeroShotProtocolJob(Job):
 
                 if torch.sum(torch.isnan(tails_scores)):
                     raise Exception("Nan value in scores...")
+                elif torch.sum(tails_scores == float("inf")):
+                    raise Exception("Inf value in scores..")
+
 
                 num_ties = (tails_scores == true_score_tail).sum()
                 filtered_rank_tail = (tails_scores > true_score_tail).sum() + 1 + num_ties // 2
@@ -245,6 +246,8 @@ class ZeroShotProtocolJob(Job):
 
                 if torch.sum(torch.isnan(true_score_head)):
                     raise Exception("Nan value in scores...")
+                elif torch.sum(true_score_head == float("inf")):
+                    raise Exception("Inf value in scores..")
 
                 # score all heads
                 heads_triples = torch.zeros(len(heads), 3).to(self.config.get("job.device"))
@@ -259,6 +262,8 @@ class ZeroShotProtocolJob(Job):
 
                 if torch.sum(torch.isnan(heads_scores)):
                     raise Exception("Nan value in scores...")
+                elif torch.sum(heads_scores == float("inf")):
+                    raise Exception("Inf value in scores..")
 
                 num_ties = (heads_scores == true_score_head).sum()
                 filtered_rank_head = (heads_scores > true_score_head).sum() + 1 + num_ties // 2
@@ -330,10 +335,8 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
     def auxiliary_phase(self, seen_model):
         if not (seen_model.get_o_embedder() == seen_model.get_s_embedder()):
             raise Exception("Using distinct subject and object embedder not permitted")
-        embedder = seen_model.get_o_embedder()
         num_seen = seen_model.dataset.num_entities()
         num_all = len(self.dataset.map_indexes(indexes=None, key="all_entity_ids"))
-        num_unseen = num_all - num_seen
 
         seen_config = seen_model.config
         seen_model.dataset = self.dataset
