@@ -503,10 +503,6 @@ zero_shot:
   # checkpoint of the model if aux phase is skipped
   full_model_checkpoint: ""
 
-  # possible values for type:
-  # - cloed_form: obtain embeddings by using the mean of the full conditional
-  # - fold_in: train on the auxiliary split
-  type: fold_in
   # eval type:
   #  - incremental: rank against all seen + current unseen
   #  - all: rank against all seen + alle unseen
@@ -522,6 +518,11 @@ zero_shot:
   # (e.g. using a seen_entity_ids.del file as entity_ids file)
   seen_checkpoint: ""
 
+  # possible values for type:
+  # - closed_form: obtain embeddings by using the mean of the full conditional
+  # - fold_in: train on the auxiliary split
+  type: fold_in
+
   closed_form:
     # normalize (l2) all embeddings (seen + unseen) after obtaining closed-form
     # embeddings for the unseen entities
@@ -535,6 +536,8 @@ zero_shot:
     max_triple: -1
     # leave -1 then the epoch number of the seen model will be chosen
     num_epoch: -1
+    #
+    incremental: False
 
 ## USER PARAMETERS #####################################################################
 

@@ -12,7 +12,7 @@ zero_shot:
   # remote
   #seen_checkpoint: local/zero-shot-experiments/zero-shot-subject-10/checkpoint_best_complex_mr.pt
   # local
-  seen_checkpoint: /home/patrick/Desktop/kge/local/zero-shot-experiments/head-10/fold-in/checkpoint_best_complex_1vsAll_kl.pt
+  seen_checkpoint: /home/patrick/Desktop/kge/local/zero-shot-experiments/head-10/fold-in/checkpoint_best_distmult_1vsAll_kl.pt
   #seen_checkpoint: local/experiments/checkpoint_best_distmult.pt
 
   fold_in:

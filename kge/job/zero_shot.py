@@ -13,7 +13,7 @@ from os import path
 import numpy as np
 from numpy.linalg import inv
 
-S,P,O = 0,1,2
+S, P, O = 0, 1, 2
 
 
 class ZeroShotProtocolJob(Job):
@@ -35,6 +35,14 @@ class ZeroShotProtocolJob(Job):
         self.obtain_seen_model = self.config.get("zero_shot.obtain_seen_model")
         self.device = self.config.get("job.device")
         self.config.check("zero_shot.eval_type", ["incremental", "all"])
+        self.config.set("dataset.pickle", False)
+
+        if self.config.get("dataset.unseen_slot") == "S":
+            self.unseen_slot = S
+        elif self.config.get("dataset.unseen_slot") == "O":
+            self.unseen_slot = O
+        else:
+            raise NotImplementedError
 
         self.only_eval = self.config.get("zero_shot.only_eval")
         if self.only_eval and self.config.get("zero_shot.full_model_checkpoint") == "":
@@ -153,8 +161,7 @@ class ZeroShotProtocolJob(Job):
         unseen_entities = np.array(unseen_entities)
         seen_entities = np.array(seen_entities)
 
-        #TODO make unseen slot configurable
-        unseen_slot = S
+        unseen_slot = self.unseen_slot
 
         full_model.eval()
 
@@ -341,75 +348,186 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
         seen_config = seen_model.config
         seen_model.dataset = self.dataset
         seen_model.to(self.device)
-        foldin_config = seen_config.clone()
-        foldin_config.folder = self.config.folder
-        foldin_config.log_folder = self.config.folder
-        foldin_config.set("valid.every", 0)
-        foldin_config.set("train.split", "aux")
-        foldin_config.set(
+        fold_in_config = seen_config.clone()
+        fold_in_config.folder = self.config.folder
+        fold_in_config.log_folder = self.config.folder
+        fold_in_config.set("valid.every", 0)
+        fold_in_config.set("train.split", "aux")
+        fold_in_config.set(
             "dataset",
             self.config.get("dataset")
         )
-        foldin_config.set("job.device", self.config.get("job.device"))
+        fold_in_config.set("job.device", self.config.get("job.device"))
+
+        # create new dataset object to remain flexible
+        # this overrides the dataset keys in fold_in_config
+        # therefore, reset after the dataset has been created
+        fold_in_dataset = Dataset.create(fold_in_config, preload_data=False)
+        fold_in_config.set(
+            "dataset",
+            self.config.get("dataset")
+        )
+        if self.config.get("zero_shot.fold_in.max_triple") > 0:
+            self.subset_data(fold_in_dataset)
+
+        if self.config.get("zero_shot.fold_in.incremental"):
+            full_model = self._auxiliary_phase_incremental(
+                seen_model, fold_in_config, fold_in_dataset
+            )
+        else:
+            full_model = self._auxiliary_phase(
+                seen_model, fold_in_config, fold_in_dataset
+            )
+        return full_model
+
+    def _auxiliary_phase(self, seen_model, fold_in_config, fold_in_dataset):
+
         # create a new model with the full dataset
-        foldin_model = KgeModel.create(foldin_config, self.dataset)
+        fold_in_model = KgeModel.create(fold_in_config, fold_in_dataset)
 
         seen_indexes = torch.tensor(
             [int(i) for i in self.dataset.load_map(key="seen_entity_ids").keys()],
             device=self.device,
         )
 
-        foldin_model.get_o_embedder()._embeddings.weight.data[seen_indexes] = (
+        fold_in_model.get_o_embedder()._embeddings.weight.data[seen_indexes] = (
            seen_model.get_o_embedder()._embeddings.weight.data
         )
 
-        foldin_model.get_p_embedder()._embeddings.weight.data = (
+        fold_in_model.get_p_embedder()._embeddings.weight.data = (
            seen_model.get_p_embedder()._embeddings.weight.data
         )
 
         if self.config.get("zero_shot.fold_in.freeze"):
             # freeze embeddings of the seen entities
-            foldin_model.get_o_embedder().freeze(seen_indexes)
+            fold_in_model.get_o_embedder().freeze(seen_indexes)
 
             # freeze relation embeddings
-            foldin_model.get_p_embedder().freeze_all()
+            fold_in_model.get_p_embedder().freeze_all()
 
-            foldin_config.log(
+            fold_in_config.log(
                 "Training on auxiliary set while holding seen embeddings constant."
             )
 
-        # create new dataset to remain flexible
-        self.config.set("dataset.pickle", False)
-        foldin_dataset = Dataset.create(self.config, preload_data=False)
-        if self.config.get("zero_shot.fold_in.max_triple") > 0:
-            self.subset_data(foldin_dataset)
-
-        foldin_epoch = self.config.get("zero_shot.fold_in.num_epoch")
-        if foldin_epoch > 0:
-            foldin_config.set("train.max_epochs", foldin_epoch)
+        fold_in_epoch = self.config.get("zero_shot.fold_in.num_epoch")
+        if fold_in_epoch > 0:
+            fold_in_config.set("train.max_epochs", fold_in_epoch)
 
         job = TrainingJob.create(
-            config=foldin_config,
-            dataset=foldin_dataset,
-            model=foldin_model,
+            config=fold_in_config,
+            dataset=fold_in_dataset,
+            model=fold_in_model,
             parent_job=self
         )
         job.run()
         return job.model
+
+    def _auxiliary_phase_incremental(self, seen_model, fold_in_config, fold_in_dataset):
+
+        freeze = self.config.get("zero_shot.fold_in.freeze")
+
+        unseen_entities = [int(idx) for idx in
+                           self.dataset.load_map("unseen_entity_ids").keys()]
+        seen_indexes = torch.tensor(
+            [int(i) for i in self.dataset.load_map(key="seen_entity_ids").keys()],
+            device=self.device,
+        )
+
+        # create a the full model
+        full_model = KgeModel.create(fold_in_config, fold_in_dataset)
+
+        num_folded = 0
+        num_unseen = len(unseen_entities)
+        for unseen in unseen_entities:
+            new_dataset = self.remap_and_prune_dataset(
+                fold_in_dataset, unseen, num_seen=len(seen_indexes))
+
+            # create a new model with vocab size 1 + num_seen
+            incremental_fold_in_model = KgeModel.create(fold_in_config, new_dataset)
+
+            incremental_fold_in_model.get_o_embedder()._embeddings.weight.data[seen_indexes] = (
+                seen_model.get_o_embedder()._embeddings.weight.data
+            )
+
+            incremental_fold_in_model.get_p_embedder()._embeddings.weight.data = (
+                seen_model.get_p_embedder()._embeddings.weight.data
+            )
+
+            if freeze:
+                # freeze embeddings of the seen entities
+                incremental_fold_in_model.get_o_embedder().freeze(seen_indexes)
+
+                # freeze relation embeddings
+                incremental_fold_in_model.get_p_embedder().freeze_all()
+
+                fold_in_config.log(
+                    f"Folding in entity {unseen} one entity of the auxiliary set."
+                )
+                fold_in_config.log(
+                    f"{num_unseen - num_folded} unseen entities to go.."
+                )
+                num_folded += 1
+
+            fold_in_epoch = self.config.get("zero_shot.fold_in.num_epoch")
+            if fold_in_epoch > 0:
+                fold_in_config.set("train.max_epochs", fold_in_epoch)
+
+            job = TrainingJob.create(
+                config=fold_in_config,
+                dataset=new_dataset,
+                model=incremental_fold_in_model,
+                parent_job=self
+            )
+            job.run()
+
+            # now copy the single learned embedding to the full model
+            if freeze:
+                # after freeze _embeddings.weight only holds the one unseen entity
+                full_model.get_o_embedder()._embeddings.weight.data[
+                    int(unseen)] = (
+                    incremental_fold_in_model.get_o_embedder()._embeddings.weight.data
+                )
+            else:
+
+                full_model.get_o_embedder()._embeddings.weight.data[
+                    int(unseen)] = (
+                    incremental_fold_in_model.get_o_embedder()._embeddings.weight.data[len(seen_indexes)]
+                )
+        return full_model
+
+    def remap_and_prune_dataset(self, dataset, unseen, num_seen):
+        aux = dataset.split("aux")
+        aux_head = aux[aux[:, 0] == int(unseen)]
+        aux_tail = aux[aux[:, 2] == int(unseen)]
+
+        new_dataset = Dataset.create(dataset.config, preload_data=False)
+        dataset.config.set(
+            "dataset",
+            self.config.get("dataset")
+        )
+        new_dataset._triples["aux"] = torch.cat((aux_head, aux_tail))
+
+        aux = new_dataset.split("aux")
+
+        # remap the index of the unseen to index_of_seen + 1
+        aux[aux[:, 2] == int(unseen), 2] = int(num_seen)
+        aux[aux[:, 0] == int(unseen), 0] = int(num_seen)
+
+        new_dataset._num_entities = num_seen + 1
+        return new_dataset
 
     def subset_data(self, dataset):
         unseen_entities = list(self.dataset.load_map("unseen_entity_ids").keys())
         max_triple = self.config.get("zero_shot.fold_in.max_triple")
 
         aux = self.dataset.split("aux")
-        new_aux = torch.zeros(1, 3).int()
+        new_aux = torch.zeros(0, 3).int()
         for unseen in unseen_entities:
-            facts = aux[aux[:, 0] == int(unseen)][:max_triple]
+            facts = (aux[aux[:, 0] == int(unseen)][:max_triple])
             new_aux = torch.cat((facts, new_aux), dim=0)
-            facts = aux[aux[:, 2] == int(unseen)][:max_triple]
+            facts = (aux[aux[:, 2] == int(unseen)][:max_triple])
             new_aux = torch.cat((facts, new_aux), dim=0)
-        # TODO you seriously don't want to do it like that
-        dataset._triples["aux"] = new_aux[:-1]
+        dataset._triples["aux"] = new_aux
 
 
 class ZeroShotClosedFormJob(ZeroShotProtocolJob):
@@ -417,7 +535,7 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
 
     def __init__(self, config, dataset, parent_job, model):
         super().__init__(config, dataset, parent_job, model)
-        if self.__class__ == ZeroShotFoldInJob:
+        if self.__class__ == ZeroShotClosedFormJob:
             for f in Job.job_created_hooks:
                 f(self)
 
@@ -455,6 +573,7 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
                 # us_in_head = us_in_head[:5]
                 # us_in_tail = us_in_tail[:5]
 
+                #TODO process recirocal relations
                 relations_head = us_in_head[:, 1]
                 relations_head = seen_model.get_p_embedder().embed(relations_head)
 
@@ -480,8 +599,6 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
                 A = -0.5*(sum_outer_head + sum_outer_tail + np.eye(
                     sum_outer_head.shape[0], sum_outer_head.shape[1])
                           )
-
-
                 b_head = (entities_head * relations_head).sum(dim=0)
                 b_tail = (entities_tail * relations_tail).sum(dim=0)
 
@@ -519,7 +636,7 @@ class ZeroShotSimilarityJob(ZeroShotProtocolJob):
 
     def __init__(self, config, dataset, parent_job, model):
         super().__init__(config, dataset, parent_job, model)
-        if self.__class__ == ZeroShotFoldInJob:
+        if self.__class__ == ZeroShotSimilarityJob:
             for f in Job.job_created_hooks:
                 f(self)
 
@@ -591,12 +708,4 @@ class ZeroShotSimilarityJob(ZeroShotProtocolJob):
                     full_model.get_o_embedder(
                     )._embeddings.weight.data[int(unseen)] = emb
                     print("obtained embedding for: " + str(unseen))
-
-
-
-
-
-
-
-
         return full_model
