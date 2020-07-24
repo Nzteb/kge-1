@@ -433,8 +433,16 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
             device=self.device,
         )
 
-        # create a the full model
+        # create the full model
         full_model = KgeModel.create(fold_in_config, fold_in_dataset)
+
+        full_model.get_o_embedder()._embeddings.weight.data[seen_indexes] = (
+            seen_model.get_o_embedder()._embeddings.weight.data
+        )
+
+        full_model.get_p_embedder()._embeddings.weight.data = (
+            seen_model.get_p_embedder()._embeddings.weight.data
+        )
 
         num_folded = 0
         num_unseen = len(unseen_entities)
@@ -460,13 +468,12 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
                 # freeze relation embeddings
                 incremental_fold_in_model.get_p_embedder().freeze_all()
 
-                fold_in_config.log(
-                    f"Folding in entity {unseen} one entity of the auxiliary set."
-                )
-                fold_in_config.log(
-                    f"{num_unseen - num_folded} unseen entities to go.."
-                )
-                num_folded += 1
+            fold_in_config.log(
+                f"Folding in entity {unseen} one entity of the auxiliary set."
+            )
+            fold_in_config.log(
+                f"{num_unseen - num_folded} unseen entities to go.."
+            )
 
             fold_in_epoch = self.config.get("zero_shot.fold_in.num_epoch")
             if fold_in_epoch > 0:
@@ -493,6 +500,7 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
                     int(unseen)] = (
                     incremental_fold_in_model.get_o_embedder()._embeddings.weight.data[len(seen_indexes)]
                 )
+            num_folded += 1
         return full_model
 
     def remap_and_prune_dataset(self, dataset, unseen, num_seen):
