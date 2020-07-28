@@ -41,6 +41,8 @@ class ZeroShotProtocolJob(Job):
             self.unseen_slot = S
         elif self.config.get("dataset.unseen_slot") == "O":
             self.unseen_slot = O
+        elif self.config.get("dataset.unseen_slot") == "both":
+            self.unseen_slot = "both"
         else:
             raise NotImplementedError
 
@@ -161,12 +163,16 @@ class ZeroShotProtocolJob(Job):
         unseen_entities = np.array(unseen_entities)
         seen_entities = np.array(seen_entities)
 
+        # todo remove
         unseen_slot = self.unseen_slot
 
         full_model.eval()
 
-        all_ranks_head = []
-        all_ranks_tail = []
+        all_ranks_head_unseen = []
+        all_ranks_tail_unseen = []
+        all_ranks_head_seen = []
+        all_ranks_tail_seen = []
+
         count = 0
         full_model.to(self.config.get("job.device"))
 
@@ -181,13 +187,27 @@ class ZeroShotProtocolJob(Job):
 
             # the test facts have a fixed slot where the unseen entity can appear
             test = self.dataset.split("test").to(self.config.get("job.device"))
-            test_facts = test[test[:, unseen_slot] == unseen]
+
+            test_facts = torch.cat(
+                (test[test[:, 0] == unseen], test[test[:, 2] == unseen])
+            )
+
+
+
 
             for test_fact in test_facts:
+
+                s = test_fact[0]
+                if s.cpu().numpy() in seen_entities:
+                    unseen_slot = O
+                elif s.cpu().numpy() in unseen_entities:
+                    unseen_slot = S
+
                 sp = test_fact[:2]
                 po = test_fact[1:]
 
                 # score against seen entities
+                # e.g. for unseen slot unseen + seen
                 tails = seen_entities
                 heads = seen_entities
 
@@ -242,7 +262,12 @@ class ZeroShotProtocolJob(Job):
                 num_ties = (tails_scores == true_score_tail).sum()
                 filtered_rank_tail = (tails_scores > true_score_tail).sum() + 1 + num_ties // 2
                 rr_tail = 1 / filtered_rank_tail.float()
-                all_ranks_tail.append(rr_tail)
+
+                if unseen_slot == O:
+                    all_ranks_tail_unseen.append(rr_tail)
+
+                else:
+                    all_ranks_tail_seen.append(rr_tail)
 
                 true_score_head = full_model.score_spo(
                     test_fact[0].view(1),
@@ -275,14 +300,29 @@ class ZeroShotProtocolJob(Job):
                 num_ties = (heads_scores == true_score_head).sum()
                 filtered_rank_head = (heads_scores > true_score_head).sum() + 1 + num_ties // 2
                 rr_head = 1 / filtered_rank_head.float()
-                all_ranks_head.append(rr_head)
 
-        mrr_head = torch.FloatTensor(all_ranks_head).mean()
-        mrr_tail = torch.FloatTensor(all_ranks_tail).mean()
-        self.config.log(f"MRR_head:{mrr_head}")
-        self.config.log(f"MRR_tail:{mrr_tail}")
-        print(f"MRR_head:{mrr_head}")
-        print(f"MRR_tail:{mrr_tail}")
+                if unseen_slot == S:
+                    all_ranks_head_unseen.append(rr_head)
+                else:
+                    all_ranks_head_seen.append(rr_head)
+
+        mrr_head_seen = torch.FloatTensor(all_ranks_head_seen).mean()
+        mrr_head_unseen = torch.FloatTensor(all_ranks_head_unseen).mean()
+
+        mrr_tail_seen = torch.FloatTensor(all_ranks_tail_seen).mean()
+        mrr_tail_unseen = torch.FloatTensor(all_ranks_tail_unseen).mean()
+
+        self.config.log(f"MRR_head_seen:{mrr_head_seen}")
+        self.config.log(f"MRR_head_unseen:{mrr_head_unseen}")
+
+        self.config.log(f"MRR_tail_seen:{mrr_tail_seen}")
+        self.config.log(f"MRR_tail_unseen:{mrr_tail_unseen}")
+
+        print(f"MRR_head_seen:{mrr_head_seen}")
+        print(f"MRR_head_unseen:{mrr_head_unseen}")
+
+        print(f"MRR_tail_seen:{mrr_tail_seen}")
+        print(f"MRR_tail_unseen:{mrr_tail_unseen}")
 
 
     # TODO load/resume
