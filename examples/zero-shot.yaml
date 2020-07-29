@@ -17,3 +17,6 @@ zero_shot:
 
   fold_in:
     num_epoch: -1
+
+entity_ranking.filter_splits: ["train", "test", "valid", "aux"]
+eval.split: test
