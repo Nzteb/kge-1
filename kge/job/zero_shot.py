@@ -212,19 +212,19 @@ class ZeroShotProtocolJob(Job):
 
                 filter_splits = self.config.get("entity_ranking.filter_splits")
                 for split in filter_splits:
-                    for existing_heads in self.dataset.index(
+                    existing_heads = self.dataset.index(
                             f"{split}_po_to_s"
-                    )[po[0].item(), po[1].item()]:
-                        if len(existing_heads):
-                            heads = heads[where_in(heads, np.array(existing_heads), not_in=True)]
+                    )[po[0].item(), po[1].item()]
+                    if len(existing_heads):
+                        heads = heads[where_in(heads, np.array(existing_heads), not_in=True)]
 
                 # filter out all existing triples
                 for split in filter_splits:
-                    for existing_tails in self.dataset.index(
-                            f"{split}_sp_to_o"
-                    ):
-                        if len(existing_tails):
-                            tails = tails[where_in(tails, np.array(existing_tails), not_in=True)]
+                    existing_tails = self.dataset.index(
+                        f"{split}_sp_to_o"
+                    )[sp[0].item(), sp[1].item()]
+                    if len(existing_tails):
+                        tails = tails[where_in(tails, np.array(existing_tails), not_in=True)]
                 true_score_tail = full_model.score_spo(
                     test_fact[0].view(1),
                     test_fact[1].view(1),
