@@ -1,0 +1,23 @@
+dataset.name: zero-shot-toy-30
+dataset.preload_data: False
+job.type: zero_shot
+zero_shot:
+  only_eval: False
+  #{fold_in, closed_form, similarity}
+  type: fold_in
+  obtain_seen_model: train
+  # {all, incremental}
+  eval_type: incremental
+  fold_in:
+    num_epoch: -1
+
+model: complex
+valid.split: valid_seen
+entity_ranking.filter_splits: [
+  "train",
+  "valid_seen",
+  "valid_unseen",
+  "test_unseen",
+  "test_seen"
+]
+eval.split: test_unseen

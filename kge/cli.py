@@ -274,7 +274,7 @@ def main():
             config.log("Job created successfully.")
         else:
             # load data
-            dataset = Dataset.create(config)
+            dataset = Dataset.create(config, preload_data=config.get("dataset.preload_data"))
 
             # let's go
             if args.command == "resume":

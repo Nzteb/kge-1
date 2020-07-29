@@ -92,7 +92,10 @@ class ZeroShotProtocolJob(Job):
                 checkpoint_file=full_checkpoint_file
             )
             full_model = KgeModel.create_from(full_checkpoint, dataset=self.dataset)
-            self.incremental_zero_shot_evaluation_phase(full_model)
+            if eval_type == "all":
+                self.evaluation_phase(full_model)
+            else:
+                self.incremental_zero_shot_evaluation_phase(full_model)
 
     def training_phase(self):
         """Train a model on the seen entities or load a pre-trained model."""
@@ -108,10 +111,11 @@ class ZeroShotProtocolJob(Job):
             # zero-shot test dataset contains unseen entities; cannot be used
             # during training on the seen entities
             seen_dataset = Dataset.create(seen_config, preload_data=False)
-            seen_config.set("eval.filter_with_test", False)
+            seen_config.set("entity_ranking.filter_with_test", False)
             seen_config.folder = path.join(self.config.folder, "seen_model")
             seen_config.set("job.type", "train")
             seen_config.set("dataset.files.entity_ids.filename", "seen_entity_ids.del")
+            seen_config.set("valid.every", -1)
             seen_config.init_folder()
             seen_dataset.config = seen_config
             job = TrainingJob.create(config=seen_config, dataset=seen_dataset)
@@ -136,9 +140,7 @@ class ZeroShotProtocolJob(Job):
         :param full_model: A KgeModel with vocabulary size of all entities (seen+unseen)
 
         """
-        self.config.set("eval.split", "test")
         self.config.check("dataset.files.entity_ids.filename", "all_entity_ids.del")
-        self.config.set("entity_ranking.filter_splits", ["aux", "train", "valid"])
         self.config.set("entity_ranking.metrics_per.head_and_tail", True)
         eval_job = EvaluationJob.create(
             config=self.config,
@@ -186,15 +188,12 @@ class ZeroShotProtocolJob(Job):
             count += 1
 
             # the test facts have a fixed slot where the unseen entity can appear
-            test = self.dataset.split("test").to(self.config.get("job.device"))
+            eval_split = self.config.get("eval.split")
+            test = self.dataset.split(eval_split).to(self.config.get("job.device"))
 
             test_facts = torch.cat(
                 (test[test[:, 0] == unseen], test[test[:, 2] == unseen])
             )
-
-
-
-
             for test_fact in test_facts:
 
                 s = test_fact[0]
@@ -211,25 +210,21 @@ class ZeroShotProtocolJob(Job):
                 tails = seen_entities
                 heads = seen_entities
 
-                for existing_heads in [
-                    self.dataset.index("train_po_to_s")[po[0].item(), po[1].item()],
-                    self.dataset.index("valid_po_to_s")[po[0].item(), po[1].item()],
-                    self.dataset.index("aux_po_to_s")[po[0].item(), po[1].item()],
-                    self.dataset.index("test_po_to_s")[po[0].item(), po[1].item()],
-                ]:
-                    if len(existing_heads):
-                        heads = heads[where_in(heads, np.array(existing_heads), not_in=True)]
+                filter_splits = self.config.get("entity_ranking.filter_splits")
+                for split in filter_splits:
+                    for existing_heads in self.dataset.index(
+                            f"{split}_po_to_s"
+                    )[po[0].item(), po[1].item()]:
+                        if len(existing_heads):
+                            heads = heads[where_in(heads, np.array(existing_heads), not_in=True)]
 
                 # filter out all existing triples
-                for existing_tails in [
-                    self.dataset.index("train_sp_to_o")[sp[0].item(), sp[1].item()],
-                    self.dataset.index("valid_sp_to_o")[sp[0].item(), sp[1].item()],
-                    self.dataset.index("aux_sp_to_o")[sp[0].item(), sp[1].item()],
-                    self.dataset.index("test_sp_to_o")[sp[0].item(), sp[1].item()],
-                ]:
-                    if len(existing_tails):
-                        tails = tails[where_in(tails, np.array(existing_tails), not_in=True)]
-
+                for split in filter_splits:
+                    for existing_tails in self.dataset.index(
+                            f"{split}_sp_to_o"
+                    ):
+                        if len(existing_tails):
+                            tails = tails[where_in(tails, np.array(existing_tails), not_in=True)]
                 true_score_tail = full_model.score_spo(
                     test_fact[0].view(1),
                     test_fact[1].view(1),
