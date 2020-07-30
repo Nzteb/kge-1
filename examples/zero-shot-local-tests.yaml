@@ -10,6 +10,7 @@ zero_shot:
   eval_type: incremental
   fold_in:
     num_epoch: -1
+  fold_in.incremental: True
 
 model: complex
 valid.split: valid_seen
@@ -21,3 +22,4 @@ entity_ranking.filter_splits: [
   "test_seen"
 ]
 eval.split: test_unseen
+train.max_epochs: 30
