@@ -165,7 +165,6 @@ class ZeroShotProtocolJob(Job):
         unseen_entities = np.array(unseen_entities)
         seen_entities = np.array(seen_entities)
 
-        # todo remove
         unseen_slot = self.unseen_slot
 
         full_model.eval()
