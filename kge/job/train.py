@@ -1075,10 +1075,14 @@ class TrainingJob1vsAllProbab(TrainingJob):
         self.elbo_form = self.config.get("1vsAllProbab.elbo_form")
         self.config.check("1vsAllProbab.elbo_form", ["kl", "entropy"])
         self.norm_p = self.config.get("1vsAllProbab.norm_p")
-        self.alpha = 0.0001
 
         var_ent = self.config.get("1vsAllProbab.prior_variance_ent")
         var_pred = self.config.get("1vsAllProbab.prior_variance_pred")
+
+        self.em_momentum = self.config.get("1vsAllProbab.em.momentum")
+        self.em_samples = self.config.get("1vsAllProbab.em.samples")
+        
+        self.alpha = 0.0000001
 
         if var_ent > 0 and var_pred > 0:
             # TODO: set different variance for predicates and entities
@@ -1366,54 +1370,34 @@ class TrainingJob1vsAllProbab(TrainingJob):
         embedder_pred = self.model.get_p_embedder()
 
         # for each entity and relation, update their regularization term (M-step)
-        if self.norm_p == 2:
-            embedder_ent.prior_variance = (
-                (all_ent_means ** 2).sum(axis=1) + (all_ent_sigmas ** 2).sum(axis=1)
-            ) / all_ent_means.size(1)
 
-            embedder_pred.prior_variance = (
-                (all_p_means ** 2).sum(axis=1) + (all_p_sigmas ** 2).sum(axis=1)
-            ) / all_p_means.size(1)
-        elif self.norm_p == 3:
-            twopi = torch.as_tensor(2 / math.pi)
-            embedder_ent.prior_variance = (
-                (
-                    torch.sqrt(twopi)
-                    * (
-                        (all_ent_means ** 2 * all_ent_sigmas + 2 * all_ent_sigmas ** 3)
-                        * torch.exp(-1 / 2 * (all_ent_means / all_ent_sigmas) ** 2)
-                    )
-                    + (
-                        3 * torch.abs(all_ent_means) * all_ent_sigmas ** 2
-                        + torch.abs(all_ent_means) ** 3
-                    )
-                    * torch.erf(
-                        torch.abs(all_ent_means)
-                        / (torch.sqrt(torch.tensor(2.0)) * all_ent_sigmas)
-                    )
-                )
-                / all_ent_means.size(1)
-            ).sum(axis=1)
+        norm_p = self.norm_p
 
-            embedder_pred.prior_variance = (
-                (
-                    torch.sqrt(twopi)
-                    * (
-                        (all_p_means ** 2 * all_p_sigmas + 2 * all_p_sigmas ** 3)
-                        * torch.exp(-1 / 2 * (all_p_means / all_p_sigmas) ** 2)
-                    )
-                    + (
-                        3 * torch.abs(all_p_means) * all_p_sigmas ** 2
-                        + torch.abs(all_p_means) ** 3
-                    )
-                    * torch.erf(
-                        torch.abs(all_p_means)
-                        / (torch.sqrt(torch.tensor(2.0)) * all_p_sigmas)
-                    )
-                )
-                / all_p_means.size(1)
-            ).sum(axis=1)
+        # sample for every embedding coordinate from the variational distribution
+        num_em_samples = 2
+        #TODO vectorize
+        sample_ent = torch.zeros(all_ent_means.size())
+        sample_pred = torch.zeros(all_p_means.size())
+        for sample in range(self.em_samples):
+            sample_ent += all_ent_means + torch.randn(all_ent_means.size()) * all_ent_sigmas
+            sample_pred += all_p_means + torch.randn(all_p_means.size()) * all_p_sigmas
+        sample_ent = sample_ent / num_em_samples
+        sample_pred = sample_pred / num_em_samples
 
-        # ensure stability
-        embedder_ent.prior_variance[torch.isnan(embedder_ent.prior_variance)] = self.alpha
-        embedder_pred.prior_variance[torch.isnan(embedder_pred.prior_variance)] = self.alpha
+        if norm_p % 2 == 1:
+            params_ent = torch.abs(all_ent_means)
+            params_pred = torch.abs(all_p_means)
+        else:
+            params_ent = sample_ent
+            params_pred = sample_pred
+
+        opt_prior_var_ent = (1/embedder_ent.dim) * torch.sum((params_ent ** norm_p), dim=1)
+        opt_prior_var_pred = (1/embedder_pred.dim) * torch.sum((params_pred ** norm_p), dim=1)
+
+        em_momentum = self.em_momentum
+
+        embedder_ent.prior_variance = (1-em_momentum) * embedder_ent.prior_variance \
+                                    + em_momentum * opt_prior_var_ent
+
+        embedder_pred.prior_variance = (1 - em_momentum) * embedder_pred.prior_variance\
+                                      + em_momentum * opt_prior_var_pred

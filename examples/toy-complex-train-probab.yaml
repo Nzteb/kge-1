@@ -16,8 +16,8 @@ train:
 1vsAllProbab:
   reparameterize_samples: 2
   # set to -1 to learn prior variances for every entity/relations
-  prior_variance_ent: -1
-  prior_variance_pred: -1
+  prior_variance_ent: -1.0
+  prior_variance_pred: -1.0
   elbo_form: entropy
   norm_p: 3
 
