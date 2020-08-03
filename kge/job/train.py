@@ -1081,7 +1081,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
 
         self.em_momentum = self.config.get("1vsAllProbab.em.momentum")
         self.em_samples = self.config.get("1vsAllProbab.em.samples")
-        
+
         self.alpha = 0.0000001
 
         if var_ent > 0 and var_pred > 0:
