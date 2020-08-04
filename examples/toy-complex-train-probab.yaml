@@ -20,10 +20,12 @@ train:
   prior_variance_pred: -1.0
   elbo_form: entropy
   norm_p: 3
+  em.momentum: 0.5
+  em.samples: 2
 
 
 valid.filter_with_test: True
 valid.every: 5
 model: probabilistic_model
-probabilistic_embedder.dim: 41
+probabilistic_embedder.dim: 42
 

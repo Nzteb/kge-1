@@ -1195,8 +1195,10 @@ class TrainingJob1vsAllProbab(TrainingJob):
         prepare_time += time.time()
 
         # EM M-step
-        if self.learn_reg:
-            self.update_prior_variances(batch)
+
+        if self.epoch > 20:
+            if self.learn_reg:
+                self.update_prior_variances(batch)
 
         # forward/backward pass (sp)
         forward_time = -time.time()
@@ -1374,15 +1376,14 @@ class TrainingJob1vsAllProbab(TrainingJob):
         norm_p = self.norm_p
 
         # sample for every embedding coordinate from the variational distribution
-        num_em_samples = 2
         #TODO vectorize
         sample_ent = torch.zeros(all_ent_means.size())
         sample_pred = torch.zeros(all_p_means.size())
         for sample in range(self.em_samples):
             sample_ent += all_ent_means + torch.randn(all_ent_means.size()) * all_ent_sigmas
             sample_pred += all_p_means + torch.randn(all_p_means.size()) * all_p_sigmas
-        sample_ent = sample_ent / num_em_samples
-        sample_pred = sample_pred / num_em_samples
+        sample_ent = sample_ent / self.em_samples
+        sample_pred = sample_pred / self.em_samples
 
         if norm_p % 2 == 1:
             params_ent = torch.abs(all_ent_means)
@@ -1401,3 +1402,4 @@ class TrainingJob1vsAllProbab(TrainingJob):
 
         embedder_pred.prior_variance = (1 - em_momentum) * embedder_pred.prior_variance\
                                       + em_momentum * opt_prior_var_pred
+

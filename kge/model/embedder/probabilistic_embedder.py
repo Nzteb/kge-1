@@ -35,6 +35,7 @@ class ProbabilisticEmbedder(KgeEmbedder):
         if self.config.get("1vsAllProbab.prior_variance_ent") == -1 \
             and self.config.get("1vsAllProbab.prior_variance_pred") == -1:
             self.prior_variance = torch.zeros(self.vocab_size)
+            self.prior_variance[:] = 1
 
         # setup means
         self.means = torch.nn.Parameter(torch.empty(self.vocab_size, self.dim))

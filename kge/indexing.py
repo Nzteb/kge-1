@@ -213,11 +213,14 @@ def index_entity_frequencies(dataset: "Dataset", split: str):
     if key in dataset._indexes:
         return
     freq = defaultdict(int)
+    rel_freq = defaultdict(int)
     for (s, p, o) in triples:
         # two possible slots for every triple
         freq[s.item()] += 1 / (2*len(triples))
         freq[o.item()] += 1 / (2*len(triples))
+        rel_freq[p.item()] += 1 / len(triples)
     dataset._indexes[key] = freq
+    dataset._indexes[f"{split}_relation_frequencies"] = rel_freq
 
 
 def index_frequency_percentiles(dataset, recompute=False):
@@ -311,6 +314,9 @@ def create_default_index_functions(dataset: "Dataset"):
     for split in dataset.files_of_type("triples"):
         ent_freq_key = split + "_entity_frequencies"
         dataset.index_functions[ent_freq_key] = IndexWrapper(
+            index_entity_frequencies, split=split
+        )
+        dataset.index_functions[f"{split}_relation_frequencies"] = IndexWrapper(
             index_entity_frequencies, split=split
         )
         for key, value in [("sp", "o"), ("po", "s"), ("so", "p")]:
