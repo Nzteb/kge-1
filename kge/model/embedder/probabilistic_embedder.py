@@ -34,8 +34,8 @@ class ProbabilisticEmbedder(KgeEmbedder):
         # does not need to be initialized as it is closed-form updated
         if self.config.get("1vsAllProbab.prior_variance_ent") == -1 \
             and self.config.get("1vsAllProbab.prior_variance_pred") == -1:
-            self.prior_variance = torch.zeros(self.vocab_size)
-            self.prior_variance[:] = 1
+            self.prior_variance = torch.ones(self.vocab_size)
+            self.init_prior_variances()
 
         # setup means
         self.means = torch.nn.Parameter(torch.empty(self.vocab_size, self.dim))
@@ -70,6 +70,17 @@ class ProbabilisticEmbedder(KgeEmbedder):
                 )
                 dropout = 0
         self.dropout = torch.nn.Dropout(dropout)
+
+    def init_prior_variances(self):
+        if self.vocab_size == self.dataset.num_relations():
+            index = self.dataset.index("train_relation_frequencies")
+        else:
+            index = self.dataset.index("train_entity_frequencies")
+        for obj in index.keys():
+            self.prior_variance[obj] = (1 / index[obj])
+
+
+
 
     def prepare_job(self, job: Job, **kwargs):
         super().prepare_job(job, **kwargs)
