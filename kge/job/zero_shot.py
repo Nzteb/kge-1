@@ -156,9 +156,9 @@ class ZeroShotProtocolJob(Job):
         aux = self.dataset.split("aux")
         new_aux = torch.zeros(0, 3).int()
         for unseen in unseen_entities:
-            facts = (aux[aux[:, 0] == int(unseen)][:max_triple])
+            facts = (aux[aux[:, 0] == int(unseen)][: int(max_triple/2)])
             new_aux = torch.cat((facts, new_aux), dim=0)
-            facts = (aux[aux[:, 2] == int(unseen)][:max_triple])
+            facts = (aux[aux[:, 2] == int(unseen)][: int(max_triple/2)])
             new_aux = torch.cat((facts, new_aux), dim=0)
         dataset._triples["aux"] = new_aux
 
@@ -415,7 +415,7 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
             self.config.get("dataset")
         )
         max_triple = self.config.get("zero_shot.fold_in.max_triple")
-        if max_triple  > 0:
+        if max_triple > 0:
             self.subset_data(fold_in_dataset, max_triple)
 
         if self.config.get("zero_shot.fold_in.incremental"):

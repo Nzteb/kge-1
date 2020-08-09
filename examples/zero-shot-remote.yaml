@@ -3,15 +3,16 @@ job.type: zero_shot
 zero_shot:
   #{fold_in, closed_form}
   type: fold_in
-  fold_in.max_triple: -1
-  fold_in.incremental: True
+  fold_in.max_triple: 64
+  fold_in.incremental: False
   fold_in.freeze: True
   obtain_seen_model: load
   # {all, incremental}
   eval_type: incremental
   # remote
-  seen_checkpoint: /work/pbetz/kge_local/local/zero-shot-experiments/zero-shot-subject-10/checkpoint_best_complex_kl.pt
+  seen_checkpoint: /work/pbetz/zero-shot-experiments/head-10/search-jobs-on-train-valid/distmult-zero-shot-head-10-1vsAll-kl-ax/00012/checkpoint_best.pt
   # local
   #seen_checkpoint: local/experiments/checkpoint_best_distmult.pt
 
-
+eval.split: test
+entity_ranking.filter_splits: ["train", "valid", "aux", "test"]
