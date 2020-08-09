@@ -151,8 +151,6 @@ class ZeroShotProtocolJob(Job):
 
     def subset_data(self, dataset, max_triple):
         unseen_entities = list(self.dataset.load_map("unseen_entity_ids").keys())
-        max_triple = self.config.get("zero_shot.fold_in.max_triple")
-
         aux = self.dataset.split("aux")
         new_aux = torch.zeros(0, 3).int()
         for unseen in unseen_entities:

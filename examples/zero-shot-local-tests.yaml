@@ -1,11 +1,13 @@
-dataset.name: zero-shot-toy-30
+dataset.name: zero-shot-head-10
 dataset.preload_data: False
 job.type: zero_shot
 zero_shot:
   only_eval: False
   #{fold_in, closed_form, similarity}
-  type: fold_in
-  obtain_seen_model: train
+  type: closed_form
+  closed_form.max_triple: 64
+  obtain_seen_model: load
+  seen_checkpoint: /home/patrick/Desktop/kge/local/zero-shot-experiments/head-10/distmult-seen-model/checkpoint_best.pt
   # {all, incremental}
   eval_type: incremental
   fold_in:
@@ -16,10 +18,9 @@ model: complex
 valid.split: valid_seen
 entity_ranking.filter_splits: [
   "train",
-  "valid_seen",
-  "valid_unseen",
-  "test_unseen",
-  "test_seen"
+  "valid",
+  "aux",
+  "test"
 ]
-eval.split: test_unseen
-train.max_epochs: 30
+eval.split: test
+
