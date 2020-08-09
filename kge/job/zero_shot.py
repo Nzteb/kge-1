@@ -573,7 +573,7 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
 
 
 class ZeroShotClosedFormJob(ZeroShotProtocolJob):
-    """Obtain zero-shot embeddings based on distmult in closed-form."""
+    """Obtain zero-shot embeddings based on Distmult in closed-form."""
 
     def __init__(self, config, dataset, parent_job, model):
         super().__init__(config, dataset, parent_job, model)
@@ -612,12 +612,25 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
                 us_in_tail = aux[aux[:, 2] == int(unseen)]
 
                 # # decrease fact number
-                # us_in_head = us_in_head[:5]
-                # us_in_tail = us_in_tail[:5]
+                # us_in_head = us_in_head[:1]
+                # us_in_tail = us_in_tail[:1]
 
                 #TODO process recirocal relations
-                relations_head = us_in_head[:, 1]
-                relations_head = seen_model.get_p_embedder().embed(relations_head)
+
+                relations_head_idx = us_in_head[:, 1]
+                if seen_model.config.get("model") == "reciprocal_relations_model":
+                    relations_head = seen_model.get_p_embedder().embed(
+                        relations_head_idx + self.dataset.num_relations()
+                    )
+                    relations_head += seen_model.get_p_embedder().embed(
+                        relations_head_idx
+                    )
+                    relations_head = relations_head/2
+                else:
+                    relations_head = seen_model.get_p_embedder().embed(
+                        relations_head_idx
+                    )
+
 
                 # this are objects, i.e., where unseen is in head
                 entities_head = us_in_head[:, 2]
@@ -627,8 +640,19 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
 
                 sum_outer_head = np.dot(prod.transpose(), prod)
 
-                relations_tail = us_in_tail[:, 1]
-                relations_tail = seen_model.get_p_embedder().embed(relations_tail)
+                relations_tail_idx = us_in_tail[:, 1]
+
+                if seen_model.config.get("model") == "reciprocal_relations_model":
+                    relations_tail = seen_model.get_p_embedder().embed(
+                        relations_tail_idx + self.dataset.num_relations())
+                    relations_tail += seen_model.get_p_embedder().embed(
+                        relations_tail_idx
+                    )
+                    relations_tail = relations_tail / 2
+                else:
+                    relations_tail = seen_model.get_p_embedder().embed(
+                        relations_tail_idx
+                    )
 
                 # this are subjects, i.e., where unseen is in tail
                 entities_tail = us_in_tail[:, 0]
@@ -638,7 +662,7 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
 
                 sum_outer_tail = np.dot(prod.transpose(), prod)
 
-                A = -0.5*(sum_outer_head + sum_outer_tail + np.eye(
+                A = (sum_outer_head + sum_outer_tail + np.eye(
                     sum_outer_head.shape[0], sum_outer_head.shape[1])
                           )
                 b_head = (entities_head * relations_head).sum(dim=0)
@@ -646,7 +670,7 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
 
                 b = b_head + b_tail
 
-                mu = np.dot(-2 * b.detach().numpy(),  inv(A))
+                mu = np.dot(b.detach().numpy(),  inv(A))
 
                 full_model.get_o_embedder(
                 )._embeddings.weight.data[int(unseen)] = torch.tensor(mu)
