@@ -149,6 +149,19 @@ class ZeroShotProtocolJob(Job):
         )
         eval_job.run()
 
+    def subset_data(self, dataset, max_triple):
+        unseen_entities = list(self.dataset.load_map("unseen_entity_ids").keys())
+        max_triple = self.config.get("zero_shot.fold_in.max_triple")
+
+        aux = self.dataset.split("aux")
+        new_aux = torch.zeros(0, 3).int()
+        for unseen in unseen_entities:
+            facts = (aux[aux[:, 0] == int(unseen)][:max_triple])
+            new_aux = torch.cat((facts, new_aux), dim=0)
+            facts = (aux[aux[:, 2] == int(unseen)][:max_triple])
+            new_aux = torch.cat((facts, new_aux), dim=0)
+        dataset._triples["aux"] = new_aux
+
     def incremental_zero_shot_evaluation_phase(self, full_model):
         """An incremental evaluation protocol.
 
@@ -401,8 +414,9 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
             "dataset",
             self.config.get("dataset")
         )
-        if self.config.get("zero_shot.fold_in.max_triple") > 0:
-            self.subset_data(fold_in_dataset)
+        max_triple = self.config.get("zero_shot.fold_in.max_triple")
+        if max_triple  > 0:
+            self.subset_data(fold_in_dataset, max_triple)
 
         if self.config.get("zero_shot.fold_in.incremental"):
             full_model = self._auxiliary_phase_incremental(
@@ -558,19 +572,6 @@ class ZeroShotFoldInJob(ZeroShotProtocolJob):
         new_dataset._num_entities = num_seen + 1
         return new_dataset
 
-    def subset_data(self, dataset):
-        unseen_entities = list(self.dataset.load_map("unseen_entity_ids").keys())
-        max_triple = self.config.get("zero_shot.fold_in.max_triple")
-
-        aux = self.dataset.split("aux")
-        new_aux = torch.zeros(0, 3).int()
-        for unseen in unseen_entities:
-            facts = (aux[aux[:, 0] == int(unseen)][:max_triple])
-            new_aux = torch.cat((facts, new_aux), dim=0)
-            facts = (aux[aux[:, 2] == int(unseen)][:max_triple])
-            new_aux = torch.cat((facts, new_aux), dim=0)
-        dataset._triples["aux"] = new_aux
-
 
 class ZeroShotClosedFormJob(ZeroShotProtocolJob):
     """Obtain zero-shot embeddings based on Distmult in closed-form."""
@@ -584,6 +585,16 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
     def auxiliary_phase(self, seen_model):
         if not (seen_model.get_o_embedder() == seen_model.get_s_embedder()):
             raise Exception("Using distinct subject and object embedder not permitted")
+
+        # create new dataset object to remain flexible
+        # this overrides the dataset keys in fold_in_config
+        # therefore, reset after the dataset has been created
+        config = self.config.clone()
+        closed_form_dataset = Dataset.create(config, preload_data=False)
+
+        max_triple = self.config.get("zero_shot.closed_form.max_triple")
+        if max_triple > 0:
+            self.subset_data(closed_form_dataset, max_triple)
 
         unseen_entities = list(self.dataset.load_map("unseen_entity_ids").keys())
 
@@ -606,7 +617,7 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
 
         with torch.no_grad():
             for unseen in unseen_entities:
-                aux = self.dataset.split("aux")
+                aux = closed_form_dataset.split("aux")
                 # collect all facts for this entity
                 us_in_head = aux[aux[:, 0] == int(unseen)]
                 us_in_tail = aux[aux[:, 2] == int(unseen)]
@@ -614,8 +625,6 @@ class ZeroShotClosedFormJob(ZeroShotProtocolJob):
                 # # decrease fact number
                 # us_in_head = us_in_head[:1]
                 # us_in_tail = us_in_tail[:1]
-
-                #TODO process recirocal relations
 
                 relations_head_idx = us_in_head[:, 1]
                 if seen_model.config.get("model") == "reciprocal_relations_model":
@@ -763,9 +772,7 @@ class ZeroShotSimilarityJob(ZeroShotProtocolJob):
                         entities = train_po_to_s[(int(po[0]), int(po[1]))]
                         counts += len(entities)
                         if type(entities) == list:
-                            print("ohohoh")
-                        else:
-                            print("good")
+                            raise Exception
                         entities = seen_model.get_o_embedder().embed(torch.tensor(entities))
                         emb += entities.sum(dim=0)
             if counts:

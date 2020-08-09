@@ -527,6 +527,8 @@ zero_shot:
     # normalize (l2) all embeddings (seen + unseen) after obtaining closed-form
     # embeddings for the unseen entities
     normalize: False
+    # see fold_in max triple
+    max_triple: -1
 
   fold_in:
     # when training on the auxiliary split, freeze the embeddings of the seen entities
