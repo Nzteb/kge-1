@@ -1112,7 +1112,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
         if self.is_prepared:
             return
 
-        self.num_examples = self.dataset.train().size(0)
+        self.num_examples = self.dataset.split("train").size(0)
         self.loader = torch.utils.data.DataLoader(
             range(self.num_examples),
             collate_fn=self.get_collate_fun(),
@@ -1126,7 +1126,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
 
     def get_collate_fun(self):
         def collate(batch):
-            triples = self.dataset.train()[batch, :].long().to(self.device)
+            triples = self.dataset.split("train")[batch, :].long().to(self.device)
 
             eps_so = torch.randn(
                 self.num_eps_samples,
@@ -1216,7 +1216,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
             all_ent_means.repeat(self.num_eps_samples, 1)
             + all_ent_sigmas.repeat(self.num_eps_samples, 1)
             * eps_so.view(self.num_eps_samples * len(all_ent_means), -1),
-            combine="sp*",
+            combine="sp_",
         )
         loss_value_sp = self.loss(scores_sp, o_idx.repeat(self.num_eps_samples))
         loss_value_sp = loss_value_sp / (self.num_eps_samples * batch_size)
@@ -1244,7 +1244,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
             all_ent_means.repeat(self.num_eps_samples, 1)
             + all_ent_sigmas.repeat(self.num_eps_samples, 1)
             * eps_so.view(self.num_eps_samples * len(all_ent_means), -1),
-            combine="sp*",
+            combine="sp_",
         )
         loss_value_po = self.loss(scores_po, s_idx.repeat(self.num_eps_samples))
         loss_value_po = loss_value_po / (self.num_eps_samples * batch_size)
@@ -1313,7 +1313,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
         penalties_entropy -= torch.log(self.alpha + all_p_sigmas).sum()
         # scale penalty with size of dataset (2*num triples) to match expectations
         penalties = (penalties_entropy + penalties_reg) / (
-            2 * len(self.dataset.train())
+            2 * len(self.dataset.split("train"))
         )
         penalties.backward()
 

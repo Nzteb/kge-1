@@ -130,12 +130,12 @@ class ProbabilisticModel(KgeModel):
                 s_means,
                 p_means,
                 all_entities_means,
-                combine="sp*")
+                combine="sp_")
             po_scores = self._scorer.score_emb(
                 o_means,
                 p_inv_means,
                 all_entities_means,
-                combine="sp*"
+                combine="sp_"
             )
         else:
             raise Exception(
