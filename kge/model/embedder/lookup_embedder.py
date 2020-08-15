@@ -8,6 +8,9 @@ from kge.model import KgeEmbedder
 from kge.misc import round_to_points
 
 from typing import List, Dict
+from typing import List
+import numpy as np
+
 
 
 class LookupEmbedder(KgeEmbedder):
@@ -30,6 +33,11 @@ class LookupEmbedder(KgeEmbedder):
         self.sparse = self.get_option("sparse")
         self.config.check("train.trace_level", ["batch", "epoch"])
         self.vocab_size = vocab_size
+
+        # load regularizer weights
+        if self.get_option("regularize_args.global_weighted_with_external"):
+            self.weights = torch.tensor(1/np.load(self.get_option("regularize_args.weights_path"))).to(self.config.get("job.device"))
+
 
         round_embedder_dim_to = self.get_option("round_dim_to")
         if len(round_embedder_dim_to) > 0:
@@ -124,13 +132,17 @@ class LookupEmbedder(KgeEmbedder):
             if not self.get_option("regularize_args.weighted"):
                 # unweighted Lp regularization
                 parameters = self._embeddings_all()
+                if p % 2 == 1:
+                    parameters = torch.abs(parameters)
                 result += [
                     (
                         f"{self.configuration_key}.L{p}_penalty",
-                        (regularize_weight / p * parameters.norm(p=p) ** p).sum(),
+                        (self.weights / p * (parameters ** p).sum(dim=1)).sum(),
                     )
                 ]
             else:
+                if self.get_option("regularize_args.global_weighted_with_external"):
+                    raise Exception
                 # weighted Lp regularization
                 unique_indexes, counts = torch.unique(
                     kwargs["indexes"], return_counts=True

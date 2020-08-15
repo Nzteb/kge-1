@@ -61,6 +61,9 @@ lookup_embedder:
 
   # Further arguments for regulariztaion
   regularize_args:
+    global_weighted_with_external: False
+    weights_path: ""
+
     # If true, penalty for the embedding of an object is weighted by the
     # object's *relative* frequency in the training data. Note that this
     # generally reduces the magnitude of the penalty (for random embeddings: by
