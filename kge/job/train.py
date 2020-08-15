@@ -1122,6 +1122,16 @@ class TrainingJob1vsAllProbab(TrainingJob):
             pin_memory=self.config.get("train.pin_memory"),
         )
 
+        def save_prior_variances():
+            import numpy as np
+            from os import path
+            embedder_ent = self.model.get_o_embedder()
+            embedder_pred = self.model.get_p_embedder()
+            ent_var = embedder_ent.prior_variance
+            pred_var = embedder_pred.prior_variance
+            np.save(path.join(self.config.folder, "prior_variance_entities" ),ent_var)
+            np.save(path.join(self.config.folder, "prior_variance_relations"), pred_var)
+        self.post_train_hooks.append(save_prior_variances)
         self.is_prepared = True
 
     def get_collate_fun(self):
@@ -1196,7 +1206,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
 
         # EM M-step
 
-        if self.epoch > 20:
+        if self.epoch > self.config.get("1vsAllProbab.em.warm_up_epochs"):
             if self.learn_reg:
                 self.update_prior_variances(batch)
 

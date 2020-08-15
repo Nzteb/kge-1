@@ -33,6 +33,10 @@ probabilistic_embedder:
   # Dropout used for the embeddings.
   dropout: 0.
 
+  # if path to a checkpoint (.pt) is given, initializes embeddings with the embeddings
+  # of the model in the checkpoint. Dimensions have to match.
+  initialize_path: ""
+
 # TODO
 #  # Whether embeddings should be normalized. Normalization takes place before
 #  # each batch is processed.

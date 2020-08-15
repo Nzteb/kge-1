@@ -6,7 +6,7 @@ from kge import Config, Dataset
 from kge.job import Job
 from kge.model import KgeEmbedder
 from kge.misc import round_to_points
-
+from kge.util.io import load_checkpoint
 from typing import List
 
 
@@ -57,8 +57,16 @@ class ProbabilisticEmbedder(KgeEmbedder):
             self.set_option("initialize_args.a", init_args["a"], log=True)
 
         # initialize params
-        self.initialize(self.means.data, init_, init_args)
-        self.initialize(self.phi.data, init_, init_args)
+        initialize_path = self.get_option("initialize_path")
+        if initialize_path != "":
+            checkpoint = load_checkpoint(initialize_path)
+            if self.vocab_size == self.dataset.num_relations():
+                self.means.data[:] = checkpoint["model"][0]["_relation_embedder.embeddings.weight"]
+            elif self.vocab_size == self.dataset.num_entities():
+                self.means.data[:] = checkpoint["model"][0]["_entity_embedder.embeddings.weight"]
+        else:
+            self.initialize(self.means.data, init_, init_args)
+            self.initialize(self.phi.data, init_, init_args)
 
         # TODO handling negative dropout because using it with ax searches for now
         dropout = self.get_option("dropout")

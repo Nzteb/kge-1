@@ -1,0 +1,51 @@
+job.type: train
+dataset.name: fb15k-237
+
+1vsAllProbab:
+  reparameterize_samples: 2
+  # set to -1 to learn prior variances for every entity/relations
+  prior_variance_ent: -1.0
+  prior_variance_pred: -1.0
+  elbo_form: entropy
+  norm_p: 3
+  em.momentum: 0.5
+  em.samples: 2
+  em.warm_up_epochs: 10
+
+
+valid.filter_with_test: True
+valid.every: 5
+model: probabilistic_model
+import: [probabilistic_model, probabilistic_embedder]
+probabilistic_model.base_model.type: complex
+probabilistic_embedder:
+  dim: 256
+  initialize_path: /home/patrick/Desktop/kge/local/thesis/complexlibkge/fb15k-237-complex_trained_from_libkge.pt
+
+lookup_embedder:
+  regularize_args:
+    p: 3
+    weighted: true
+
+train:
+  loss: kl
+  type: 1vsAllProbab
+  auto_correct: true
+  batch_size: 1024
+  loss_arg: 1.0
+  lr_scheduler: ReduceLROnPlateau
+  lr_scheduler_args:
+    factor: 0.95
+    mode: max
+    patience: 7
+    threshold: 0.0001
+  max_epochs: 400
+  optimizer_args:
+    lr: 0.18255429345236635
+
+valid:
+  early_stopping:
+    min_threshold:
+      epochs: 50
+      metric_value: 0.05
+    patience: 10
