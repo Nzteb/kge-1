@@ -12,9 +12,14 @@ from typing import List
 
 class ProbabilisticEmbedder(KgeEmbedder):
     def __init__(
-        self, config: Config, dataset: Dataset, configuration_key: str, vocab_size: int
+            self,
+            config: Config,
+            dataset: Dataset,
+            configuration_key: str,
+            vocab_size: int,
+            init_for_load_only=False
     ):
-        super().__init__(config, dataset, configuration_key)
+        super().__init__(config, dataset, configuration_key, init_for_load_only=init_for_load_only)
 
         # read config
         # TODO

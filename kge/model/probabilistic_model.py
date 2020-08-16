@@ -5,7 +5,13 @@ from kge.model.kge_model import KgeModel
 
 
 class ProbabilisticModel(KgeModel):
-    def __init__(self, config: Config, dataset: Dataset, configuration_key=None):
+    def __init__(
+            self,
+            config: Config,
+            dataset: Dataset,
+            configuration_key=None,
+            init_for_load_only=False
+    ):
         self._init_configuration(config, configuration_key)
 
         # Initialize base model
@@ -13,12 +19,19 @@ class ProbabilisticModel(KgeModel):
         alt_dataset = dataset.shallow_copy()
         alt_dataset._num_relations = dataset.num_relations() * 2
         base_model = KgeModel.create(
-            config, alt_dataset, self.configuration_key + ".base_model"
+            config,
+            alt_dataset,
+            self.configuration_key + ".base_model",
+            init_for_load_only=init_for_load_only
         )
 
         # Initialize this model
         super().__init__(
-            config, dataset, base_model.get_scorer(), initialize_embedders=False
+            config,
+            dataset,
+            base_model.get_scorer(),
+            create_embedders=False,
+            init_for_load_only=init_for_load_only
         )
         self._base_model = base_model
 
