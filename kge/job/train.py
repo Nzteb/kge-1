@@ -1122,7 +1122,7 @@ class TrainingJob1vsAllProbab(TrainingJob):
             pin_memory=self.config.get("train.pin_memory"),
         )
 
-        def save_prior_variances():
+        def save_prior_variances(job, trace):
             import numpy as np
             from os import path
             embedder_ent = self.model.get_o_embedder()
