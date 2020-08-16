@@ -137,7 +137,7 @@ class LookupEmbedder(KgeEmbedder):
                 result += [
                     (
                         f"{self.configuration_key}.L{p}_penalty",
-                        (self.weights / p * (parameters ** p).sum(dim=1)).sum(),
+                        (regularize_weight*self.weights / p * (parameters ** p).sum(dim=1)).sum(),
                     )
                 ]
             else:

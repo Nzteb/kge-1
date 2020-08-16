@@ -20,7 +20,10 @@ import: [probabilistic_model, probabilistic_embedder]
 probabilistic_model.base_model.type: complex
 probabilistic_embedder:
   dim: 256
-  initialize_path: /home/patrick/Desktop/kge/local/thesis/complexlibkge/fb15k-237-complex_trained_from_libkge.pt
+  #local
+  #initialize_path: /home/patrick/Desktop/kge/local/thesis/complexlibkge/fb15k-237-complex_trained_from_libkge.pt
+  #remote
+  initialize_path: /work/pbetz/em-with-pre-trained/complex-from-libkge/fb15k-237-complex.pt
 
 lookup_embedder:
   regularize_args:
@@ -39,7 +42,7 @@ train:
     mode: max
     patience: 7
     threshold: 0.0001
-  max_epochs: 400
+  max_epochs: 1
   optimizer_args:
     lr: 0.18255429345236635
 
