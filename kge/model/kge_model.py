@@ -468,6 +468,21 @@ class KgeModel(KgeBase):
                                 freeze_indexes = list(
                                     map(lambda _id: id_map.index(_id), ids)
                                 )
+                                model = self.config.get("model")
+                                if (
+                                    model == "reciprocal_relations_model"
+                                    and name == "relation"
+                                ):
+                                    # this is the base model and num_relations is twice
+                                    # the number of relations already
+                                    reciprocal_indexes = list(
+                                        map(
+                                            lambda idx: idx
+                                            + self.dataset.num_relations() / 2,
+                                            freeze_indexes,
+                                        )
+                                    )
+                                    freeze_indexes.extend(reciprocal_indexes)
                                 if list(set(freeze_indexes)) != freeze_indexes:
                                     raise Exception(
                                         f"Unique set of ids needed for freezing {name}'s."

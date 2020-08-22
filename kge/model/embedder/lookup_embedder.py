@@ -144,7 +144,7 @@ class LookupEmbedder(KgeEmbedder):
             num_freeze, self.dim, sparse=self.sparse,
         )
         self._embeddings = torch.nn.Embedding(
-            self.dataset.num_entities() - num_freeze, self.dim, sparse=self.sparse,
+            self.vocab_size - num_freeze, self.dim, sparse=self.sparse,
         )
 
         # for a global index i stores at position i a 1
@@ -188,7 +188,6 @@ class LookupEmbedder(KgeEmbedder):
             emb[~frozen_indexes_mask] = self._embeddings(
                 positions[indexes[~frozen_indexes_mask].long()]
             )
-
             return emb
 
         def _embeddings_all() -> Tensor:
