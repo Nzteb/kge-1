@@ -129,34 +129,28 @@ class LookupEmbedder(KgeEmbedder):
     def _get_regularize_weight(self) -> Tensor:
         return self.get_option("regularize_weight")
 
-    def freeze_all(self):
-        """Freeze all embeddings."""
-        self._embeddings.weight.requires_grad = False
+    def freeze(self, freeze_indexes) -> Tensor:
+        """Freeze the embeddings of the entities specified by freeze_indexes.
 
-    def freeze(self, freeze_indexes: Tensor):
-        """Freeze the embeddings of the entities specified by freeze_indexes. """
+         This method overrides the _embed() and _embeddings_all() methods.
+
+         """
 
         num_freeze = len(freeze_indexes)
 
         original_weights = self._embeddings.weight.data
 
         self._embeddings_freeze = torch.nn.Embedding(
-            num_freeze,
-            self.dim,
-            sparse=self.sparse,
+            num_freeze, self.dim, sparse=self.sparse,
         )
         self._embeddings = torch.nn.Embedding(
-            self.dataset.num_entities() - num_freeze,
-            self.dim,
-            sparse=self.sparse,
+            self.dataset.num_entities() - num_freeze, self.dim, sparse=self.sparse,
         )
 
         # for a global index i stores at position i a 1
         # when it corresponds to a frozen parameter
         freeze_mask = torch.zeros(
-            self.vocab_size,
-            dtype=torch.bool,
-            device=original_weights.device
+            self.vocab_size, dtype=torch.bool, device=original_weights.device
         )
         freeze_mask[freeze_indexes] = 1
 
@@ -170,19 +164,16 @@ class LookupEmbedder(KgeEmbedder):
         # for a global index i stores at position i its index in either the
         # frozen or the non-frozen embedding tensor
         positions = torch.zeros(
-            self.vocab_size,
-            dtype=torch.long,
-            device=self._embeddings.weight.device
+            self.vocab_size, dtype=torch.long, device=self._embeddings.weight.device
         )
         positions[freeze_mask] = torch.arange(
             num_freeze, device=self.config.get("job.device")
         )
         positions[~freeze_mask] = torch.arange(
-            self.dataset.num_entities() - num_freeze,
-            device=self._embeddings.weight.device
+            self.vocab_size - num_freeze, device=self._embeddings.weight.device
         )
 
-        def embed(indexes: Tensor) -> Tensor:
+        def _embed(indexes: Tensor) -> Tensor:
 
             emb = torch.empty(
                 (len(indexes), self.dim), device=self._embeddings.weight.device
@@ -198,7 +189,7 @@ class LookupEmbedder(KgeEmbedder):
                 positions[indexes[~frozen_indexes_mask].long()]
             )
 
-            return self._postprocess(emb)
+            return emb
 
         def _embeddings_all() -> Tensor:
 
@@ -224,7 +215,7 @@ class LookupEmbedder(KgeEmbedder):
             return emb
 
         self._embeddings_all = _embeddings_all
-        self.embed = embed
+        self._embed = _embed
 
     def penalty(self, **kwargs) -> List[Tensor]:
         # TODO factor out to a utility method

@@ -448,6 +448,36 @@ class KgeModel(KgeBase):
                         pretrained_relations_model.get_p_embedder()
                     )
 
+                # freeze embeddings if desired
+                for embedder, name in [
+                    (self._relation_embedder, "relation"),
+                    (self._entity_embedder, "entity"),
+                ]:
+                    freeze_file = embedder.get_option("freeze.ids_file")
+                    if freeze_file != "":
+                        if not os.path.isfile(freeze_file):
+                            freeze_file = os.path.join(self.dataset.folder, freeze_file)
+                        if not os.path.isfile(freeze_file):
+                            raise FileNotFoundError(
+                                f"Could not find freeze files for {name} embedder"
+                            )
+                        else:
+                            with open(freeze_file, "r") as file:
+                                ids = file.read().rstrip("\n").splitlines()
+                                id_map = self.dataset.load_map(f"{name}_ids")
+                                freeze_indexes = list(
+                                    map(lambda _id: id_map.index(_id), ids)
+                                )
+                                if list(set(freeze_indexes)) != freeze_indexes:
+                                    raise Exception(
+                                        f"Unique set of ids needed for freezing {name}'s."
+                                    )
+
+                                self.config.log(
+                                    f"Freezing {name} embeddings found in {freeze_file}"
+                                )
+                                embedder.freeze(freeze_indexes)
+
         #: Scorer
         self._scorer: RelationalScorer
         if type(scorer) == type:
