@@ -9,7 +9,11 @@ train:
   lr_scheduler_args:
     mode: max
     patience: 4
+  loss: diff_rank
+  loss_arg: 500.0
+  type: 1vsAll
 
+model: complex
 lookup_embedder:
   dim: 100
   regularize_weight: 0.8e-7

@@ -2,6 +2,8 @@ import math
 import torch
 import torch.nn.functional as F
 from kge import Config
+from torch.autograd import Variable
+
 
 # Documented losses
 # - See description in config-default.yaml
@@ -42,6 +44,7 @@ class KgeLoss:
                 "kl",
                 "soft_margin",
                 "se",
+                "diff_rank"
             ],
         )
         if config.get("train.loss") == "bce":
@@ -84,6 +87,8 @@ class KgeLoss:
             return SoftMarginKgeLoss(config)
         elif config.get("train.loss") == "se":
             return SEKgeLoss(config)
+        elif config.get("train.loss") == "diff_rank":
+            return RankingLoss(config)
         else:
             raise ValueError(
                 "invalid value train.loss={}".format(config.get("train.loss"))
@@ -272,3 +277,48 @@ class SEKgeLoss(KgeLoss):
     def __call__(self, scores, labels, **kwargs):
         labels = self._labels_as_matrix(scores, labels)
         return self._loss(scores, labels)
+
+
+class RankingLoss(KgeLoss):
+    def __init__(self, config, **kwargs):
+        super().__init__(config)
+        self._ranker = Ranker.apply
+
+    def __call__(self, scores, labels, **kwargs):
+        labels = self._labels_as_indexes(scores, labels)
+
+        _lambda = self.config.get("train.loss_arg")
+        ranks = self._ranker(scores, Variable(torch.tensor(_lambda)))
+        final_ranks = ranks[torch.arange(labels.size(0)), labels]
+        rank_loss = torch.sum(final_ranks)
+        return rank_loss
+
+
+class Ranker(torch.autograd.Function):
+    """Black-box differentiable rank calculator."""
+
+    @staticmethod
+    def forward(ctx, input, _lambda):
+        """
+        input:  batch_size x triples/entities tensor of real valued scores
+
+        """
+        arg_ranks = torch.argsort(
+            torch.argsort(input, dim=1, descending=True)
+        ).float() + 1
+        arg_ranks.requires_grad = True
+        ctx.save_for_backward(input, arg_ranks, _lambda)
+        return arg_ranks
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        """
+        grad_outputs: upstream gradient batch_size x triples/entities
+
+        """
+        input, arg_ranks, _lambda = ctx.saved_tensors
+        perturbed_input = input + _lambda * grad_output
+        perturbed_arg_ranks = torch.argsort(
+            torch.argsort(perturbed_input, dim=1, descending=True)
+        ) + 1
+        return - 1/_lambda * (arg_ranks - perturbed_arg_ranks), None
